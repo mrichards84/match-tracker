@@ -1,0 +1,9 @@
+credentials "artifact-registry.local:8080" {
+  token = "anonymous"
+}
+
+host "artifact-registry.local:8080" {
+  services = {
+    "modules.v1" = "http://artifact-registry.local:8080/terraform/v1/modules/"
+  }
+}

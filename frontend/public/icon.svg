@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="pitchGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#047857" />
+    </linearGradient>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#161f2c" />
+      <stop offset="100%" stop-color="#0a0e14" />
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)"/>
+  <rect x="24" y="24" width="464" height="464" rx="88" fill="none" stroke="#233247" stroke-width="4"/>
+  
+  <!-- Pitch Outline Graphic -->
+  <rect x="80" y="80" width="352" height="352" rx="28" fill="none" stroke="url(#pitchGrad)" stroke-width="12"/>
+  <line x1="80" y1="256" x2="432" y2="256" stroke="url(#pitchGrad)" stroke-width="10"/>
+  <circle cx="256" cy="256" r="64" fill="none" stroke="url(#pitchGrad)" stroke-width="10"/>
+  <circle cx="256" cy="256" r="10" fill="#10b981"/>
+  
+  <!-- Penalty Boxes -->
+  <rect x="176" y="80" width="160" height="70" fill="none" stroke="url(#pitchGrad)" stroke-width="8"/>
+  <rect x="176" y="362" width="160" height="70" fill="none" stroke="url(#pitchGrad)" stroke-width="8"/>
+  
+  <!-- Football Silhouette In Center -->
+  <circle cx="256" cy="256" r="32" fill="#ffffff" stroke="#0a0e14" stroke-width="4"/>
+  <polygon points="256,236 272,248 266,268 246,268 240,248" fill="#161f2c"/>
+</svg>

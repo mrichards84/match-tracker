@@ -264,6 +264,9 @@ export default function MatchSetupPage({
                   value={periodDurationMinutes}
                   onChange={(e) => setPeriodDurationMinutes(Number(e.target.value))}
                 >
+                  <option value={5}>5 mins</option>
+                  <option value={6}>6 mins</option>
+                  <option value={10}>10 mins</option>
                   <option value={15}>15 mins</option>
                   <option value={20}>20 mins</option>
                   <option value={25}>25 mins</option>

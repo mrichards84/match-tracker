@@ -292,7 +292,7 @@ export default function HomePage() {
               {squadNames.length > 0 && (
                 <div style={{ marginBottom: '16px' }}>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                    Squad Roster ({squadNames.length}):
+                    Squad Players ({squadNames.length}):
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                     {squadNames.map((name) => (

@@ -12,9 +12,11 @@ import {
   AlertTriangle,
   Smartphone,
   Info,
-  Shield
+  Shield,
+  Sparkles
 } from 'lucide-react';
 import { hapticFeedback } from '@/utils/haptics';
+import { CURRENT_APP_VERSION } from '@/data/changelog';
 
 export default function SettingsPage() {
   const [exporting, setExporting] = useState(false);
@@ -116,6 +118,43 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* App Updates & Changelog Card */}
+        <div className="card">
+          <div className="card-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Sparkles size={18} color="var(--pitch-green)" />
+              App Updates & Changelog
+            </div>
+            <span
+              style={{
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: '12px',
+                background: 'rgba(16, 185, 129, 0.15)',
+                color: 'var(--pitch-green-light)',
+                border: '1px solid rgba(16, 185, 129, 0.3)'
+              }}
+            >
+              v{CURRENT_APP_VERSION}
+            </span>
+          </div>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '14px', lineHeight: 1.4 }}>
+            Match Tracker automatically updates in the background. Tap below to see what was added in the latest release.
+          </p>
+          <button
+            onClick={() => {
+              hapticFeedback.tap();
+              window.dispatchEvent(new CustomEvent('open-changelog'));
+            }}
+            className="btn btn-secondary btn-block"
+            style={{ justifyContent: 'center', padding: '12px 16px' }}
+          >
+            <Sparkles size={16} color="var(--pitch-green-light)" style={{ marginRight: '6px' }} />
+            View What's New & Release Notes
+          </button>
+        </div>
+
         {/* Data Portability Card */}
         <div className="card">
           <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -123,7 +162,7 @@ export default function SettingsPage() {
             Local Data & Backup
           </div>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: 1.4 }}>
-            All your team rosters, matches, and player minutes are stored directly on this device using IndexedDB (zero cloud delay, works 100% offline).
+            All your team squads, matches, and player minutes are stored directly on this device using IndexedDB (zero cloud delay, works 100% offline).
           </p>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -194,7 +233,7 @@ export default function SettingsPage() {
             Reset Application
           </div>
           <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '14px' }}>
-            Delete all teams, player rosters, and historical matches from this device. Make sure to export a backup first if you want to keep your data.
+            Delete all teams, player squads, and historical matches from this device. Make sure to export a backup first if you want to keep your data.
           </p>
           <button
             onClick={() => setShowClearConfirm(true)}

@@ -290,7 +290,7 @@ export default function LiveMatchPage({
         startSecond: currentSecs
       });
 
-      // Update rosters
+      // Update squads
       newBench = newBench.filter((id) => id !== pair.onId);
       newBench.push(pair.offId);
 
@@ -609,7 +609,7 @@ export default function LiveMatchPage({
     return formatTimeShort(totalSecs);
   };
 
-  // Active pitch rosters
+  // Active pitch lineups
   const activeGK = match.activeGoalkeeperId ? playerMap.get(match.activeGoalkeeperId) : null;
   const activeOutfield = match.activeOutfieldPlayerIds
     .map((id) => playerMap.get(id))

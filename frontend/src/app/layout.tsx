@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import '@/styles/globals.css';
 import Script from 'next/script';
+import { UpdateSplashScreen } from '@/components/UpdateSplashScreen';
 
 export const metadata: Metadata = {
   title: 'Match Tracker | Grassroots Football',
@@ -38,12 +39,30 @@ export default function RootLayout({
       <body>
         <div className="app-container">
           {children}
+          <UpdateSplashScreen />
         </div>
+
         <Script id="sw-registration" strategy="afterInteractive">
           {`
             if ('serviceWorker' in navigator) {
               window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js').catch(() => {});
+                const hadPreviousController = !!navigator.serviceWorker.controller;
+                let refreshing = false;
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                  if (hadPreviousController && !refreshing) {
+                    refreshing = true;
+                    window.location.reload();
+                  }
+                });
+
+                navigator.serviceWorker.register('/sw.js').then((reg) => {
+                  reg.update().catch(() => {});
+                  document.addEventListener('visibilitychange', () => {
+                    if (document.visibilityState === 'visible') {
+                      reg.update().catch(() => {});
+                    }
+                  });
+                }).catch(() => {});
               });
             }
           `}

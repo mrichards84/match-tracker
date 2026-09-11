@@ -1,5 +1,5 @@
 // Service Worker for Match Tracker PWA
-const CACHE_NAME = 'match-tracker-v1';
+const CACHE_NAME = 'match-tracker-v2';
 const ASSETS_TO_CACHE = [
   '/',
   '/manifest.json',

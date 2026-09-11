@@ -376,7 +376,7 @@ export default function TeamHubPage({
           </Link>
         </div>
 
-        {/* Quick Squad Roster */}
+        {/* Quick Squad */}
         <div style={{ marginTop: '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
             <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>

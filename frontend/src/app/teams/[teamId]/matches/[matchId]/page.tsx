@@ -26,7 +26,8 @@ import {
   AlertTriangle,
   Users,
   ChevronRight,
-  SunMedium
+  SunMedium,
+  Star
 } from 'lucide-react';
 
 export default function LiveMatchPage({
@@ -61,6 +62,7 @@ export default function LiveMatchPage({
   const [showEventsModal, setShowEventsModal] = useState(false);
   const [showEndMatchModal, setShowEndMatchModal] = useState(false);
   const [showNextPeriodModal, setShowNextPeriodModal] = useState(false);
+  const [selectedPotmId, setSelectedPotmId] = useState<string | null>(null);
 
   // Batch sub state: pairs of { offId, onId }
   const [batchPairs, setBatchPairs] = useState<{ offId: string; onId: string }[]>([]);
@@ -590,7 +592,8 @@ export default function LiveMatchPage({
       lastStartedAt: undefined,
       stints: finalStints,
       events: [...match.events, finalEvent],
-      completedAt: now
+      completedAt: now,
+      playerOfTheMatchId: selectedPotmId || undefined
     });
 
     setShowEndMatchModal(false);
@@ -1554,9 +1557,102 @@ export default function LiveMatchPage({
                 <X size={20} />
               </button>
             </div>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '18px' }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '14px' }}>
               This will conclude the match at <strong>{match.scoreFor} - {match.scoreAgainst}</strong>, close all player pitch intervals, and generate the final match timeline report.
             </p>
+
+            {/* Player of the Match Selection */}
+            <div style={{ margin: '14px 0 18px 0', textAlign: 'left' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+                  <Star size={16} color="var(--gk-gold)" fill={selectedPotmId ? 'var(--gk-gold)' : 'none'} />
+                  <span style={{ fontWeight: 700 }}>Player of the Match</span>
+                </label>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Optional</span>
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, 1fr)',
+                  gap: '8px',
+                  maxHeight: '160px',
+                  overflowY: 'auto',
+                  padding: '2px'
+                }}
+              >
+                {(players || [])
+                  .filter((p) => p.isActive)
+                  .map((player) => {
+                    const isSelected = selectedPotmId === player.id;
+                    return (
+                      <button
+                        key={player.id}
+                        type="button"
+                        onClick={() => {
+                          hapticFeedback.tap();
+                          setSelectedPotmId(isSelected ? null : player.id);
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          padding: '8px 10px',
+                          borderRadius: 'var(--radius-md)',
+                          border: isSelected ? '1.5px solid var(--gk-gold)' : '1px solid var(--border-subtle)',
+                          background: isSelected ? 'rgba(245, 158, 11, 0.15)' : 'var(--bg-surface)',
+                          color: isSelected ? '#fff' : 'var(--text-secondary)',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: '24px',
+                            height: '24px',
+                            borderRadius: '50%',
+                            background: isSelected ? 'var(--gk-gold)' : 'var(--bg-elevated)',
+                            color: isSelected ? '#000' : 'var(--text-primary)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '0.72rem',
+                            fontWeight: 800,
+                            flexShrink: 0
+                          }}
+                        >
+                          {isSelected ? <Star size={13} fill="#000" /> : player.name.charAt(0).toUpperCase()}
+                        </div>
+                        <span
+                          style={{
+                            fontSize: '0.82rem',
+                            fontWeight: isSelected ? 700 : 500,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {player.name}
+                        </span>
+                      </button>
+                    );
+                  })}
+              </div>
+
+              {selectedPotmId && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '6px', fontSize: '0.75rem', color: 'var(--gk-gold)' }}>
+                  <span>Awarding POTM to: <strong>{playerMap.get(selectedPotmId)?.name}</strong> ⭐</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPotmId(null)}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline' }}
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+            </div>
             <div style={{ display: 'flex', gap: '10px' }}>
               <button
                 type="button"

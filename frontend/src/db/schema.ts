@@ -82,6 +82,7 @@ export interface Match {
 
   createdAt: number;
   completedAt?: number;
+  playerOfTheMatchId?: string; // Optional ID of player chosen as Player of the Match
 }
 
 export interface PlayerSeasonStats {
@@ -94,6 +95,7 @@ export interface PlayerSeasonStats {
   lastMatchPlayingSeconds: number;
   goalkeeperSeconds: number;
   goalsScored: number;
+  playerOfTheMatchCount: number;
 }
 
 export interface DatabaseBackup {

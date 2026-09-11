@@ -10,7 +10,8 @@ import {
   X, 
   ChevronDown, 
   ChevronUp, 
-  CheckCircle2 
+  CheckCircle2,
+  Star 
 } from 'lucide-react';
 import { CURRENT_APP_VERSION, CHANGELOG, ChangelogHighlight } from '@/data/changelog';
 import { hapticFeedback } from '@/utils/haptics';
@@ -60,6 +61,8 @@ export function UpdateSplashScreen() {
         return <ShieldCheck size={20} color="var(--pitch-green)" />;
       case 'zap':
         return <Zap size={20} color="#fbbf24" />;
+      case 'star':
+        return <Star size={20} color="var(--gk-gold)" fill="var(--gk-gold)" />;
       case 'sparkles':
       default:
         return <Sparkles size={20} color="#a78bfa" />;

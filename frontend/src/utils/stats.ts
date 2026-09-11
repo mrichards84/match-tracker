@@ -52,6 +52,7 @@ export function calculateSeasonStats(players: Player[], matches: Match[]): Playe
     let totalPlayingSeconds = 0;
     let goalkeeperSeconds = 0;
     let goalsScored = 0;
+    let playerOfTheMatchCount = 0;
 
     for (const match of sortedMatches) {
       const { totalSeconds, goalkeeperSeconds: gkSec, goals } = calculatePlayerMatchSeconds(match, player.id);
@@ -62,6 +63,10 @@ export function calculateSeasonStats(players: Player[], matches: Match[]): Playe
         goalkeeperSeconds += gkSec;
       }
       goalsScored += goals;
+
+      if (match.playerOfTheMatchId === player.id) {
+        playerOfTheMatchCount += 1;
+      }
     }
 
     // Last match seconds
@@ -84,7 +89,8 @@ export function calculateSeasonStats(players: Player[], matches: Match[]): Playe
       averagePlayingSeconds,
       lastMatchPlayingSeconds,
       goalkeeperSeconds,
-      goalsScored
+      goalsScored,
+      playerOfTheMatchCount
     };
   });
 }

@@ -18,7 +18,9 @@ import {
   Trash2,
   AlertTriangle,
   X,
-  Users
+  Users,
+  Star,
+  Edit2
 } from 'lucide-react';
 import { hapticFeedback } from '@/utils/haptics';
 
@@ -41,6 +43,7 @@ export default function MatchResultDetailsPage({
 
   const [copied, setCopied] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showPotmModal, setShowPotmModal] = useState(false);
 
   const playerMap = new Map((players || []).map((p) => [p.id, p]));
 
@@ -78,6 +81,15 @@ export default function MatchResultDetailsPage({
     lines.push(`⚽ MATCH RESULT: ${team.name} ${match.scoreFor} - ${match.scoreAgainst} ${match.opposition}`);
     lines.push(`🗓️ ${formatMatchDate(match.date)} | ${match.format} (${formatTimeShort(match.elapsedSeconds)})`);
     lines.push('');
+
+    // Player of the Match
+    if (match.playerOfTheMatchId) {
+      const potmName = playerMap.get(match.playerOfTheMatchId)?.name;
+      if (potmName) {
+        lines.push(`⭐ Player of the Match: ${potmName}`);
+        lines.push('');
+      }
+    }
 
     // Goals
     const teamGoals = match.events.filter((e) => e.type === 'goal_for');
@@ -141,6 +153,14 @@ export default function MatchResultDetailsPage({
     } catch {
       // Ignore
     }
+  };
+
+  const handleUpdatePotm = async (newPotmId: string | null) => {
+    hapticFeedback.tap();
+    await db.matches.update(matchId, {
+      playerOfTheMatchId: newPotmId || undefined
+    });
+    setShowPotmModal(false);
   };
 
   const handleDeleteMatch = async () => {
@@ -229,6 +249,68 @@ export default function MatchResultDetailsPage({
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
               <Clock size={14} /> {formatTimeShort(match.elapsedSeconds)} duration
             </span>
+          </div>
+
+          {/* Player of the Match Highlight */}
+          <div
+            style={{
+              marginTop: '16px',
+              padding: '12px 14px',
+              background: match.playerOfTheMatchId
+                ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(217, 119, 6, 0.08) 100%)'
+                : 'rgba(255, 255, 255, 0.04)',
+              border: match.playerOfTheMatchId
+                ? '1px solid rgba(245, 158, 11, 0.4)'
+                : '1px dashed var(--border-subtle)',
+              borderRadius: 'var(--radius-md)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '10px'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', textAlign: 'left' }}>
+              <div
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  background: match.playerOfTheMatchId ? 'var(--gk-gold)' : 'var(--bg-elevated)',
+                  color: match.playerOfTheMatchId ? '#000' : 'var(--text-muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}
+              >
+                <Star size={18} fill={match.playerOfTheMatchId ? '#000' : 'none'} />
+              </div>
+              <div>
+                <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: match.playerOfTheMatchId ? 'var(--gk-gold)' : 'var(--text-muted)' }}>
+                  Player of the Match
+                </div>
+                <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  {match.playerOfTheMatchId ? (playerMap.get(match.playerOfTheMatchId)?.name || 'Unknown') : 'Not selected'}
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                hapticFeedback.tap();
+                setShowPotmModal(true);
+              }}
+              className="btn btn-ghost"
+              style={{
+                fontSize: '0.78rem',
+                padding: '6px 10px',
+                minHeight: '30px',
+                borderColor: match.playerOfTheMatchId ? 'rgba(245, 158, 11, 0.4)' : 'var(--border-subtle)',
+                color: match.playerOfTheMatchId ? 'var(--gk-gold-light)' : 'var(--text-secondary)'
+              }}
+            >
+              {match.playerOfTheMatchId ? 'Change' : 'Award POTM'}
+            </button>
           </div>
 
           {/* Share Button Inside Card */}
@@ -360,8 +442,26 @@ export default function MatchResultDetailsPage({
                 }}
               >
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     {stat.player.name}
+                    {match.playerOfTheMatchId === stat.player.id && (
+                      <span
+                        style={{
+                          fontSize: '0.68rem',
+                          fontWeight: 800,
+                          padding: '1px 6px',
+                          borderRadius: '10px',
+                          background: 'rgba(245, 158, 11, 0.2)',
+                          color: 'var(--gk-gold)',
+                          border: '1px solid rgba(245, 158, 11, 0.4)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px'
+                        }}
+                      >
+                        <Star size={10} fill="var(--gk-gold)" /> POTM
+                      </span>
+                    )}
                   </div>
                   {stat.goalkeeperSeconds > 0 && (
                     <div style={{ fontSize: '0.72rem', color: 'var(--gk-gold-light)', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -397,12 +497,14 @@ export default function MatchResultDetailsPage({
         </div>
       </main>
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Match Confirmation Modal */}
       {showDeleteModal && (
         <div className="modal-overlay" onClick={() => setShowDeleteModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2 className="modal-title">Delete Match?</h2>
+              <h2 className="modal-title" style={{ color: 'var(--danger-red)' }}>
+                Delete Match Record?
+              </h2>
               <button className="icon-button" onClick={() => setShowDeleteModal(false)}>
                 <X size={20} />
               </button>
@@ -426,6 +528,99 @@ export default function MatchResultDetailsPage({
                 style={{ flex: 2 }}
               >
                 Delete Record
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Player of the Match Edit Modal */}
+      {showPotmModal && (
+        <div className="modal-overlay" onClick={() => setShowPotmModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Star size={20} color="var(--gk-gold)" fill="var(--gk-gold)" />
+                Player of the Match
+              </h2>
+              <button className="icon-button" onClick={() => setShowPotmModal(false)}>
+                <X size={20} />
+              </button>
+            </div>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '14px' }}>
+              Select the player to award Player of the Match for this game vs <strong>{match.opposition}</strong>.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '240px', overflowY: 'auto', marginBottom: '16px' }}>
+              {playerStats.map(({ player }) => {
+                const isSelected = match.playerOfTheMatchId === player.id;
+                return (
+                  <button
+                    key={player.id}
+                    type="button"
+                    onClick={() => handleUpdatePotm(player.id)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '10px 14px',
+                      borderRadius: 'var(--radius-md)',
+                      border: isSelected ? '1.5px solid var(--gk-gold)' : '1px solid var(--border-subtle)',
+                      background: isSelected ? 'rgba(245, 158, 11, 0.15)' : 'var(--bg-surface)',
+                      color: isSelected ? '#fff' : 'var(--text-primary)',
+                      cursor: 'pointer',
+                      textAlign: 'left'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div
+                        style={{
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '50%',
+                          background: isSelected ? 'var(--gk-gold)' : 'var(--bg-elevated)',
+                          color: isSelected ? '#000' : 'var(--text-primary)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.8rem',
+                          fontWeight: 800
+                        }}
+                      >
+                        {isSelected ? <Star size={15} fill="#000" /> : player.name.charAt(0).toUpperCase()}
+                      </div>
+                      <span style={{ fontWeight: isSelected ? 700 : 500, fontSize: '0.9rem' }}>
+                        {player.name}
+                      </span>
+                    </div>
+                    {isSelected && (
+                      <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--gk-gold)' }}>
+                        Selected ⭐
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              {match.playerOfTheMatchId && (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ flex: 1, color: 'var(--danger-red)' }}
+                  onClick={() => handleUpdatePotm(null)}
+                >
+                  Remove Award
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ flex: 1 }}
+                onClick={() => setShowPotmModal(false)}
+              >
+                Cancel
               </button>
             </div>
           </div>

@@ -17,7 +17,8 @@ import {
   Trophy,
   Clock,
   Shield,
-  Search
+  Search,
+  Star
 } from 'lucide-react';
 import { hapticFeedback } from '@/utils/haptics';
 
@@ -196,9 +197,29 @@ export default function SquadStatsPage({
                       {stat.playerName.charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-                        {stat.playerName}
-                      </h3>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+                          {stat.playerName}
+                        </h3>
+                        {stat.playerOfTheMatchCount > 0 && (
+                          <span
+                            style={{
+                              fontSize: '0.7rem',
+                              fontWeight: 800,
+                              padding: '2px 7px',
+                              borderRadius: '12px',
+                              background: 'rgba(245, 158, 11, 0.2)',
+                              color: 'var(--gk-gold)',
+                              border: '1px solid rgba(245, 158, 11, 0.4)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '3px'
+                            }}
+                          >
+                            <Star size={11} fill="var(--gk-gold)" /> {stat.playerOfTheMatchCount} POTM
+                          </span>
+                        )}
+                      </div>
                       <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
                         {stat.matchesPlayed} {stat.matchesPlayed === 1 ? 'match' : 'matches'} played
                       </div>
@@ -275,13 +296,21 @@ export default function SquadStatsPage({
                   </div>
                 </div>
 
-                {/* Goalkeeper minutes badge if player was GK */}
-                {stat.goalkeeperSeconds > 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: 'var(--gk-gold-light)' }}>
-                    <Shield size={14} />
-                    <span>Goalkeeper time: <strong>{formatTimeShort(stat.goalkeeperSeconds)}</strong></span>
-                  </div>
-                )}
+                {/* Badges: Goalkeeper time & Player of the Match awards */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
+                  {stat.playerOfTheMatchCount > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', color: 'var(--gk-gold)' }}>
+                      <Star size={14} fill="var(--gk-gold)" />
+                      <span>Player of the Match: <strong>{stat.playerOfTheMatchCount}x</strong></span>
+                    </div>
+                  )}
+                  {stat.goalkeeperSeconds > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', color: 'var(--gk-gold-light)' }}>
+                      <Shield size={14} />
+                      <span>Goalkeeper time: <strong>{formatTimeShort(stat.goalkeeperSeconds)}</strong></span>
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -337,7 +366,7 @@ export default function SquadStatsPage({
                         {stat.playerName}
                       </div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        {stat.matchesPlayed} matches • {formatTimeLong(stat.totalPlayingSeconds)} • ⚽ {stat.goalsScored}
+                        {stat.matchesPlayed} matches • {formatTimeLong(stat.totalPlayingSeconds)} • ⚽ {stat.goalsScored}{stat.playerOfTheMatchCount > 0 ? ` • ⭐ ${stat.playerOfTheMatchCount} POTM` : ''}
                       </div>
                     </div>
                     <button

@@ -6,7 +6,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db';
 import { Navbar } from '@/components/Navbar';
 import { formatMatchDate, formatTimeShort } from '@/utils/formatters';
-import { Trophy, ChevronRight, Calendar, Clock, Plus, Shield } from 'lucide-react';
+import { Trophy, ChevronRight, Calendar, Clock, Plus, Shield, Star } from 'lucide-react';
 
 export default function ResultsListPage({
   params
@@ -21,6 +21,11 @@ export default function ResultsListPage({
     () => db.matches.where('teamId').equals(teamId).toArray(),
     [teamId]
   );
+  const players = useLiveQuery(
+    () => db.players.where('teamId').equals(teamId).toArray(),
+    [teamId]
+  );
+  const playerMap = new Map((players || []).map((p) => [p.id, p]));
 
   const completedMatches = (matches || [])
     .filter((m) => m.status === 'completed')
@@ -117,6 +122,24 @@ export default function ResultsListPage({
                           <span className="badge badge-muted" style={{ fontSize: '0.68rem' }}>
                             {match.format}
                           </span>
+                          {match.playerOfTheMatchId && playerMap.get(match.playerOfTheMatchId) && (
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                                fontSize: '0.68rem',
+                                fontWeight: 700,
+                                color: 'var(--gk-gold)',
+                                background: 'rgba(245, 158, 11, 0.15)',
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                border: '1px solid rgba(245, 158, 11, 0.3)'
+                              }}
+                            >
+                              <Star size={10} fill="var(--gk-gold)" /> POTM: {playerMap.get(match.playerOfTheMatchId)?.name}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>

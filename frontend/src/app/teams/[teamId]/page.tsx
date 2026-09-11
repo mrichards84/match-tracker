@@ -324,7 +324,7 @@ export default function TeamHubPage({
                     Squad & Statistics
                   </div>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                    Season minutes, GK rotation & goals
+                    Season minutes, goals & POTM awards
                   </div>
                 </div>
               </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Navbar } from '@/components/Navbar';
 import { exportDatabase, importDatabase, db } from '@/db';
 import {
@@ -13,9 +13,13 @@ import {
   Smartphone,
   Info,
   Shield,
-  Sparkles
+  Sparkles,
+  Volume2,
+  VolumeX,
+  Bell
 } from 'lucide-react';
-import { hapticFeedback } from '@/utils/haptics';
+import { sound, isSoundEnabled, setSoundEnabled } from '@/utils/audio';
+import { hapticFeedback, isHapticsEnabled, setHapticsEnabled } from '@/utils/haptics';
 import { CURRENT_APP_VERSION } from '@/data/changelog';
 
 export default function SettingsPage() {
@@ -23,7 +27,33 @@ export default function SettingsPage() {
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [soundActive, setSoundActive] = useState(false);
+  const [hapticsActive, setHapticsActive] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setSoundActive(isSoundEnabled());
+    setHapticsActive(isHapticsEnabled());
+  }, []);
+
+  const handleToggleSound = () => {
+    const next = !soundActive;
+    setSoundActive(next);
+    setSoundEnabled(next);
+    hapticFeedback.tap();
+    if (next) {
+      sound.previewWhistle();
+    }
+  };
+
+  const handleToggleHaptics = () => {
+    const next = !hapticsActive;
+    setHapticsActive(next);
+    setHapticsEnabled(next);
+    if (next) {
+      hapticFeedback.subAlert();
+    }
+  };
 
   const handleExportBackup = async () => {
     try {
@@ -117,6 +147,155 @@ export default function SettingsPage() {
             <span>{message.text}</span>
           </div>
         )}
+
+        {/* Match Alerts & Feedback Card */}
+        <div className="card">
+          <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Bell size={18} color="var(--pitch-green)" />
+            Match Alerts & Feedback
+          </div>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: 1.4 }}>
+            Control pitch-side audio sound effects and phone vibrations during matches.
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {/* Sound Effects Toggle */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '12px 14px',
+                borderRadius: 'var(--radius-md)',
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border-subtle)'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                <div
+                  style={{
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: '50%',
+                    background: soundActive ? 'rgba(16, 185, 129, 0.2)' : 'var(--bg-elevated)',
+                    color: soundActive ? 'var(--pitch-green)' : 'var(--text-muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0
+                  }}
+                >
+                  {soundActive ? <Volume2 size={18} /> : <VolumeX size={18} />}
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff' }}>
+                    Whistle & Sound Effects
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                    {soundActive
+                      ? 'Enabled — Plays referee whistles and alert chimes'
+                      : 'Disabled — Silent (No whistles or audio chimes)'}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {soundActive && (
+                  <button
+                    type="button"
+                    onClick={() => sound.previewWhistle()}
+                    className="btn btn-ghost"
+                    style={{ minHeight: '34px', padding: '4px 8px', fontSize: '0.75rem', color: 'var(--pitch-green-light)' }}
+                    title="Preview whistle sound"
+                  >
+                    Test
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleToggleSound}
+                  className={`btn ${soundActive ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{
+                    minHeight: '34px',
+                    padding: '4px 14px',
+                    fontSize: '0.82rem',
+                    fontWeight: 700
+                  }}
+                >
+                  {soundActive ? 'ON' : 'OFF'}
+                </button>
+              </div>
+            </div>
+
+            {/* Vibration Alerts Toggle */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '12px 14px',
+                borderRadius: 'var(--radius-md)',
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border-subtle)'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                <div
+                  style={{
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: '50%',
+                    background: hapticsActive ? 'rgba(14, 165, 233, 0.2)' : 'var(--bg-elevated)',
+                    color: hapticsActive ? 'var(--sub-blue)' : 'var(--text-muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0
+                  }}
+                >
+                  <Smartphone size={18} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#fff' }}>
+                    Phone Vibration (Haptics)
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                    {hapticsActive
+                      ? 'Enabled — Vibrates for sub reminders, period breaks & goals'
+                      : 'Disabled — No vibration feedback'}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {hapticsActive && (
+                  <button
+                    type="button"
+                    onClick={() => hapticFeedback.subAlert()}
+                    className="btn btn-ghost"
+                    style={{ minHeight: '34px', padding: '4px 8px', fontSize: '0.75rem', color: 'var(--sub-blue)' }}
+                    title="Test vibration pulse"
+                  >
+                    Test
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleToggleHaptics}
+                  className={`btn ${hapticsActive ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{
+                    minHeight: '34px',
+                    padding: '4px 14px',
+                    fontSize: '0.82rem',
+                    fontWeight: 700
+                  }}
+                >
+                  {hapticsActive ? 'ON' : 'OFF'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* App Updates & Changelog Card */}
         <div className="card">

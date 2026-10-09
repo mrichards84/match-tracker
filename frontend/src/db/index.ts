@@ -13,6 +13,9 @@ export class MatchTrackerDB extends Dexie {
       players: 'id, teamId, name, isActive, [teamId+isActive]',
       matches: 'id, teamId, status, date, createdAt, [teamId+status]'
     });
+    this.version(2).stores({
+      matches: 'id, teamId, status, date, createdAt, [teamId+status], matchGroupId'
+    });
   }
 }
 

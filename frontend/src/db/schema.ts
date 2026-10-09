@@ -49,6 +49,28 @@ export interface PlayerMatchStint {
   endSecond?: number; // populated when stint ends
 }
 
+export interface PlannedSubChange {
+  inPlayerId: string;
+  outPlayerId: string;
+}
+
+export interface PlannedSubstitution {
+  id: string;
+  period: number;
+  timestampSeconds: number; // match clock seconds when substitution is scheduled
+  label: string; // e.g. "10:00"
+  gkChange?: {
+    inPlayerId: string;
+    outPlayerId?: string;
+  };
+  outfieldChanges: PlannedSubChange[];
+  applied?: boolean;
+  dismissed?: boolean;
+  targetGoalkeeperId?: string;
+  targetOutfieldPlayerIds?: string[];
+  targetBenchPlayerIds?: string[];
+}
+
 export interface Match {
   id: string;
   teamId: string;
@@ -65,6 +87,18 @@ export interface Match {
   lastStartedAt?: number; // Date.now() timestamp when timer was last started
   scoreFor: number;
   scoreAgainst: number;
+
+  // Multi-match session linkage
+  matchGroupId?: string;
+  matchGroupIndex?: number; // 1-based (e.g. 1 for Match 1)
+  matchGroupTotal?: number; // total matches in this matchday session
+  nextMatchId?: string;
+  previousMatchId?: string;
+
+  // Matchday squad attendance & GK rotation plan
+  matchdaySquadPlayerIds?: string[];
+  plannedGkPlayerIds?: string[];
+  plannedSubstitutions?: PlannedSubstitution[];
 
   // Starting lineup configuration
   startingGoalkeeperId?: string;

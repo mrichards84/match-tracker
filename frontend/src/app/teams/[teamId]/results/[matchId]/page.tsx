@@ -3,7 +3,8 @@
 import React, { useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '@/db';
+import { db, generateUUID } from '@/db';
+import type { PlayerMatchStint } from '@/db/schema';
 import { Navbar } from '@/components/Navbar';
 import { calculatePlayerMatchSeconds } from '@/utils/stats';
 import { formatMatchDate, formatTimeShort, formatMMSS } from '@/utils/formatters';
@@ -20,7 +21,9 @@ import {
   X,
   Users,
   Star,
-  Edit2
+  Edit2,
+  Play,
+  ArrowRight
 } from 'lucide-react';
 import { hapticFeedback } from '@/utils/haptics';
 
@@ -36,6 +39,10 @@ export default function MatchResultDetailsPage({
 
   const team = useLiveQuery(() => db.teams.get(teamId), [teamId]);
   const match = useLiveQuery(() => db.matches.get(matchId), [matchId]);
+  const nextMatch = useLiveQuery(
+    () => (match?.nextMatchId ? db.matches.get(match.nextMatchId) : undefined),
+    [match?.nextMatchId]
+  );
   const players = useLiveQuery(
     () => db.players.where('teamId').equals(teamId).toArray(),
     [teamId]
@@ -169,6 +176,50 @@ export default function MatchResultDetailsPage({
     router.push(`/teams/${teamId}/results`);
   };
 
+  const handleStartNextMatch = async () => {
+    if (!match?.nextMatchId || !nextMatch) return;
+    hapticFeedback.tap();
+    const now = Date.now();
+
+    const nextInitialStints: PlayerMatchStint[] = [];
+    if (nextMatch.startingGoalkeeperId) {
+      nextInitialStints.push({
+        playerId: nextMatch.startingGoalkeeperId,
+        role: 'goalkeeper',
+        startSecond: 0
+      });
+    }
+    nextMatch.startingOutfieldPlayerIds.forEach((pId) => {
+      nextInitialStints.push({
+        playerId: pId,
+        role: 'outfield',
+        startSecond: 0
+      });
+    });
+
+    await db.matches.update(match.nextMatchId, {
+      status: 'in_progress',
+      lastStartedAt: now,
+      activeGoalkeeperId: nextMatch.startingGoalkeeperId,
+      activeOutfieldPlayerIds: nextMatch.startingOutfieldPlayerIds,
+      benchPlayerIds: nextMatch.benchPlayerIds,
+      stints: nextInitialStints,
+      events: [
+        {
+          id: generateUUID(),
+          matchId: match.nextMatchId,
+          type: 'period_start',
+          timestampSeconds: 0,
+          period: 1,
+          notes: 'Match kick-off',
+          createdAt: now
+        }
+      ]
+    });
+
+    router.push(`/teams/${teamId}/matches/${match.nextMatchId}`);
+  };
+
   return (
     <>
       <Navbar
@@ -189,6 +240,69 @@ export default function MatchResultDetailsPage({
       />
 
       <main className="main-content">
+        {/* Next Match in Matchday Session Banner */}
+        {nextMatch && (
+          <div
+            className="card"
+            style={{
+              background:
+                nextMatch.status === 'setup'
+                  ? 'linear-gradient(135deg, #059669 0%, #047857 100%)'
+                  : 'linear-gradient(135deg, #131f30 0%, #1a2a40 100%)',
+              border: '1px solid ' + (nextMatch.status === 'setup' ? '#10b981' : 'var(--border-subtle)'),
+              padding: '14px 16px',
+              marginBottom: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px'
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 800, color: '#fff', fontSize: '0.95rem' }}>
+                {nextMatch.status === 'setup' ? 'Next Match Ready: ' : 'Next in Matchday: '}
+                Game {nextMatch.matchGroupIndex || 2} vs {nextMatch.opposition}
+              </div>
+              <div
+                style={{
+                  fontSize: '0.78rem',
+                  color: nextMatch.status === 'setup' ? 'rgba(255,255,255,0.85)' : 'var(--text-secondary)'
+                }}
+              >
+                {nextMatch.status === 'setup'
+                  ? 'Lineup & equal time rotations planned'
+                  : `Status: ${nextMatch.status}`}
+              </div>
+            </div>
+            {nextMatch.status === 'setup' ? (
+              <button
+                onClick={handleStartNextMatch}
+                className="btn"
+                style={{
+                  background: '#fff',
+                  color: '#047857',
+                  fontWeight: 800,
+                  minHeight: '38px',
+                  padding: '6px 14px',
+                  fontSize: '0.85rem',
+                  flexShrink: 0
+                }}
+              >
+                <Play size={16} fill="#047857" />
+                Start Game {nextMatch.matchGroupIndex || 2}
+              </button>
+            ) : (
+              <button
+                onClick={() => router.push(`/teams/${teamId}/matches/${nextMatch.id}`)}
+                className="btn btn-secondary"
+                style={{ minHeight: '38px', padding: '6px 12px', fontSize: '0.82rem', flexShrink: 0 }}
+              >
+                View Match
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Result Header Hero Card */}
         <div
           className="card"
@@ -393,14 +507,17 @@ export default function MatchResultDetailsPage({
                     )}
                     {ev.type === 'powerplay_in' && (
                       <div style={{ fontSize: '0.85rem' }}>
-                        <span style={{ color: 'var(--powerplay-purple)' }}>⚡ Powerplay ON:</span>{' '}
+                        <span style={{ color: 'var(--powerplay-purple)' }}>⚡ Extra Player ON:</span>{' '}
                         <strong>{playerOn?.name}</strong> brought on
+                        {ev.notes && ev.notes !== 'Powerplay extra player added' && (
+                          <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}> • {ev.notes}</span>
+                        )}
                       </div>
                     )}
                     {ev.type === 'powerplay_out' && (
                       <div style={{ fontSize: '0.85rem' }}>
-                        <span style={{ color: 'var(--powerplay-purple)' }}>⚡ Powerplay OFF:</span>{' '}
-                        <strong>{playerOn?.name}</strong> reverted to bench
+                        <span style={{ color: 'var(--powerplay-purple)' }}>⚡ Player Withdrawn:</span>{' '}
+                        <strong>{playerOn?.name}</strong> moved to bench
                       </div>
                     )}
                     {ev.type === 'period_start' && (

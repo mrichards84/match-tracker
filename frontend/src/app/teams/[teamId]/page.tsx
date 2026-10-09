@@ -49,12 +49,42 @@ export default function TeamHubPage({
   const [quickPlayerName, setQuickPlayerName] = useState('');
   const [isAddingPlayer, setIsAddingPlayer] = useState(false);
 
-  // Check for in-progress match
+  // Check for in-progress match or waiting session match
   const liveMatch = (matches || []).find(
     (m) => m.status === 'in_progress' || m.status === 'paused'
   );
+  const waitingSessionMatch = (matches || []).find(
+    (m) => m.status === 'setup'
+  );
   const completedMatches = (matches || []).filter((m) => m.status === 'completed');
   const activePlayers = (players || []).filter((p) => p.isActive);
+
+  // Check for unsaved draft in localStorage
+  const [savedDraft, setSavedDraft] = useState<{
+    matchesList?: { opposition: string }[];
+    attendingPlayerIds?: string[];
+    savedAt?: number;
+  } | null>(null);
+
+  React.useEffect(() => {
+    try {
+      const draftStr = localStorage.getItem(`matchday_draft_${teamId}`);
+      if (draftStr) {
+        const parsed = JSON.parse(draftStr);
+        if (parsed && (parsed.matchesList?.length > 0 || parsed.attendingPlayerIds?.length > 0)) {
+          setSavedDraft(parsed);
+        }
+      }
+    } catch {}
+  }, [teamId]);
+
+  const handleDiscardDraft = () => {
+    hapticFeedback.tap();
+    try {
+      localStorage.removeItem(`matchday_draft_${teamId}`);
+    } catch {}
+    setSavedDraft(null);
+  };
 
   const handleSaveTeamName = async () => {
     if (!editedName.trim() || !team) return;
@@ -162,6 +192,122 @@ export default function TeamHubPage({
           </div>
         )}
 
+        {/* Prepared / Waiting Session Match Banner */}
+        {!liveMatch && waitingSessionMatch && (
+          <div
+            style={{
+              background: 'linear-gradient(135deg, rgba(14, 165, 233, 0.2) 0%, rgba(2, 132, 199, 0.25) 100%)',
+              border: '1.5px solid var(--sub-blue)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '16px',
+              marginBottom: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              boxShadow: '0 4px 16px rgba(14, 165, 233, 0.2)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div
+                style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '50%',
+                  background: 'var(--sub-blue)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fff',
+                  flexShrink: 0
+                }}
+              >
+                <Activity size={22} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 800, color: '#fff', fontSize: '1rem' }}>
+                  {waitingSessionMatch.matchGroupTotal && waitingSessionMatch.matchGroupTotal > 1
+                    ? `Matchday Ready: Game ${waitingSessionMatch.matchGroupIndex || 1} of ${waitingSessionMatch.matchGroupTotal} vs ${waitingSessionMatch.opposition}`
+                    : `Match Ready: vs ${waitingSessionMatch.opposition}`}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'rgba(255, 255, 255, 0.85)' }}>
+                  Lineup & rotation plan saved • Ready to review and kick off
+                </div>
+              </div>
+            </div>
+            <Link
+              href={`/teams/${teamId}/matches/${waitingSessionMatch.id}`}
+              className="btn btn-primary"
+              style={{ minHeight: '40px', padding: '6px 16px', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
+            >
+              Review & Kick Off
+            </Link>
+          </div>
+        )}
+
+        {/* Unsaved Setup Draft Banner */}
+        {!liveMatch && !waitingSessionMatch && savedDraft && (
+          <div
+            style={{
+              background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(217, 119, 6, 0.2) 100%)',
+              border: '1.5px solid var(--gk-gold)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '16px',
+              marginBottom: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              boxShadow: '0 4px 16px rgba(245, 158, 11, 0.15)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div
+                style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '50%',
+                  background: 'var(--gk-gold)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#000',
+                  flexShrink: 0
+                }}
+              >
+                <Activity size={22} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 800, color: '#fff', fontSize: '1rem' }}>
+                  Unsaved Matchday Setup Draft
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'rgba(255, 255, 255, 0.85)' }}>
+                  {savedDraft.matchesList?.[0]?.opposition
+                    ? `vs ${savedDraft.matchesList[0].opposition} • `
+                    : ''}
+                  {savedDraft.attendingPlayerIds?.length || 0} players selected • Everything auto-saved
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                onClick={handleDiscardDraft}
+                className="btn btn-ghost"
+                style={{ minHeight: '38px', padding: '6px 10px', fontSize: '0.8rem', color: 'var(--text-muted)' }}
+              >
+                Discard
+              </button>
+              <Link
+                href={`/teams/${teamId}/matches/new`}
+                className="btn btn-primary"
+                style={{ minHeight: '38px', padding: '6px 14px', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
+              >
+                Resume Setup
+              </Link>
+            </div>
+          </div>
+        )}
+
         {/* Team Header Card */}
         <div
           className="card"
@@ -245,49 +391,141 @@ export default function TeamHubPage({
 
         {/* Primary Action Buttons Grid */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px', marginBottom: '20px' }}>
-          {/* Start Match Button */}
-          <Link
-            href={`/teams/${teamId}/matches/new`}
-            style={{ textDecoration: 'none' }}
-          >
-            <div
-              className="card"
-              style={{
-                margin: 0,
-                background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
-                borderColor: '#10b981',
-                padding: '20px 16px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                color: '#fff',
-                boxShadow: '0 6px 18px var(--pitch-green-glow)'
-              }}
+          {/* Primary Match Action Card */}
+          {waitingSessionMatch ? (
+            <Link
+              href={`/teams/${teamId}/matches/${waitingSessionMatch.id}`}
+              style={{ textDecoration: 'none' }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                <div
-                  style={{
-                    width: '46px',
-                    height: '46px',
-                    borderRadius: '50%',
-                    background: 'rgba(255, 255, 255, 0.2)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
-                  <Play size={24} fill="#fff" />
-                </div>
-                <div>
-                  <div style={{ fontSize: '1.15rem', fontWeight: 800 }}>Start Match</div>
-                  <div style={{ fontSize: '0.8rem', opacity: 0.9 }}>
-                    Lineup, timer, subs & live tracking
+              <div
+                className="card"
+                style={{
+                  margin: 0,
+                  background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
+                  borderColor: 'var(--sub-blue)',
+                  padding: '20px 16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  color: '#fff',
+                  boxShadow: '0 6px 18px rgba(14, 165, 233, 0.35)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <div
+                    style={{
+                      width: '46px',
+                      height: '46px',
+                      borderRadius: '50%',
+                      background: 'rgba(255, 255, 255, 0.2)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    <Play size={24} fill="#fff" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '1.15rem', fontWeight: 800 }}>
+                      Review Prepared Match
+                    </div>
+                    <div style={{ fontSize: '0.8rem', opacity: 0.9 }}>
+                      vs {waitingSessionMatch.opposition} • Lineups ready for kick-off
+                    </div>
                   </div>
                 </div>
+                <ArrowRight size={22} />
               </div>
-              <ArrowRight size={22} />
-            </div>
-          </Link>
+            </Link>
+          ) : savedDraft ? (
+            <Link
+              href={`/teams/${teamId}/matches/new`}
+              style={{ textDecoration: 'none' }}
+            >
+              <div
+                className="card"
+                style={{
+                  margin: 0,
+                  background: 'linear-gradient(135deg, #d97706 0%, #b45309 100%)',
+                  borderColor: 'var(--gk-gold)',
+                  padding: '20px 16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  color: '#fff',
+                  boxShadow: '0 6px 18px rgba(245, 158, 11, 0.3)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <div
+                    style={{
+                      width: '46px',
+                      height: '46px',
+                      borderRadius: '50%',
+                      background: 'rgba(255, 255, 255, 0.2)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    <Play size={24} fill="#fff" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '1.15rem', fontWeight: 800 }}>
+                      Resume Matchday Setup
+                    </div>
+                    <div style={{ fontSize: '0.8rem', opacity: 0.9 }}>
+                      Saved draft{savedDraft.matchesList?.[0]?.opposition ? ` vs ${savedDraft.matchesList[0].opposition}` : ''} ready
+                    </div>
+                  </div>
+                </div>
+                <ArrowRight size={22} />
+              </div>
+            </Link>
+          ) : (
+            <Link
+              href={`/teams/${teamId}/matches/new`}
+              style={{ textDecoration: 'none' }}
+            >
+              <div
+                className="card"
+                style={{
+                  margin: 0,
+                  background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                  borderColor: '#10b981',
+                  padding: '20px 16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  color: '#fff',
+                  boxShadow: '0 6px 18px var(--pitch-green-glow)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <div
+                    style={{
+                      width: '46px',
+                      height: '46px',
+                      borderRadius: '50%',
+                      background: 'rgba(255, 255, 255, 0.2)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    <Play size={24} fill="#fff" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '1.15rem', fontWeight: 800 }}>Start Match</div>
+                    <div style={{ fontSize: '0.8rem', opacity: 0.9 }}>
+                      Lineup, timer, subs & live tracking
+                    </div>
+                  </div>
+                </div>
+                <ArrowRight size={22} />
+              </div>
+            </Link>
+          )}
 
           {/* View Squad & Stats */}
           <Link

@@ -1,13 +1,48 @@
 // Web Audio API Whistle Synthesizer
-// Generates realistic referee whistle pulses without external audio files
+// Generates referee whistle pulses and substitution chimes
+// Disabled by default as requested (vibration only); configurable in Settings & live match
+
+export const SOUND_STORAGE_KEY = 'match_tracker_sound_enabled';
+
+export function isSoundEnabled(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const stored = localStorage.getItem(SOUND_STORAGE_KEY);
+    // Defaults to FALSE (muted by default, vibration only)
+    if (stored === null) return false;
+    return stored === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function setSoundEnabled(enabled: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(SOUND_STORAGE_KEY, enabled ? 'true' : 'false');
+    window.dispatchEvent(
+      new CustomEvent('sound-setting-changed', { detail: { enabled } })
+    );
+  } catch {}
+}
 
 class WhistleSound {
   private ctx: AudioContext | null = null;
 
+  isEnabled(): boolean {
+    return isSoundEnabled();
+  }
+
+  setEnabled(enabled: boolean): void {
+    setSoundEnabled(enabled);
+  }
+
   private getContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
     if (!this.ctx) {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (AudioCtx) {
         this.ctx = new AudioCtx();
       }
@@ -18,8 +53,10 @@ class WhistleSound {
     return this.ctx;
   }
 
-  // Plays a standard referee whistle burst (e.g. at half time or full time)
+  // Plays a standard referee whistle burst (e.g. at kick off, half time, or full time)
+  // Ignored if sound is disabled
   playWhistle(duration = 0.45, repetitions = 2) {
+    if (!this.isEnabled()) return;
     const ctx = this.getContext();
     if (!ctx) return;
 
@@ -29,8 +66,55 @@ class WhistleSound {
     }
   }
 
+  // Plays a vibrant, distinctive 2-tone chime for substitution and rotation alerts
+  // Ignored if sound is disabled
+  playSubstitutionAlert() {
+    if (!this.isEnabled()) return;
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    const t0 = ctx.currentTime;
+    // Tone 1: 587.33Hz (D5)
+    this.playTone(ctx, t0, 587.33, 0.14);
+    // Tone 2: 880Hz (A5)
+    this.playTone(ctx, t0 + 0.16, 880, 0.22);
+    // Tone 3: 1174.66Hz (D6)
+    this.playTone(ctx, t0 + 0.34, 1174.66, 0.28);
+  }
+
+  // Force-test sound directly even if currently toggled off (for preview in Settings)
+  previewWhistle() {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    this.synthesizeWhistlePip(ctx, ctx.currentTime, 0.35);
+  }
+
+  previewAlert() {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    const t0 = ctx.currentTime;
+    this.playTone(ctx, t0, 587.33, 0.14);
+    this.playTone(ctx, t0 + 0.16, 880, 0.22);
+  }
+
+  private playTone(ctx: AudioContext, startTime: number, freq: number, duration: number) {
+    const osc = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, startTime);
+
+    gainNode.gain.setValueAtTime(0, startTime);
+    gainNode.gain.linearRampToValueAtTime(0.28, startTime + 0.02);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+    osc.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    osc.start(startTime);
+    osc.stop(startTime + duration);
+  }
+
   private synthesizeWhistlePip(ctx: AudioContext, startTime: number, duration: number) {
-    // Whistle fundamental frequency is around 2500Hz - 2800Hz with high frequency vibrato (the 'pea' inside the whistle)
     const osc1 = ctx.createOscillator();
     const osc2 = ctx.createOscillator();
     const vibrato = ctx.createOscillator();

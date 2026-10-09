@@ -30,7 +30,9 @@ import {
   Layers,
   ArrowRight,
   Sparkles,
-  Check
+  Check,
+  Zap,
+  Sliders
 } from 'lucide-react';
 import { hapticFeedback } from '@/utils/haptics';
 
@@ -96,8 +98,16 @@ export default function MatchSetupPage({
   // --- Step 4: Goalkeepers (who shares GK duties) ---
   const [gkPlayerIds, setGkPlayerIds] = useState<string[]>([]);
 
-  // --- Step 5: Substitution Frequency ---
-  const [rotationFreq, setRotationFreq] = useState<RotationFrequencySetting>('auto');
+  // --- Step 5: Substitution Strategy & Frequency ---
+  const [rotationStrategy, setRotationStrategy] = useState<'predictable_lengths' | 'minimum_interruptions' | 'fixed'>('predictable_lengths');
+  const [fixedInterval, setFixedInterval] = useState<string>('5');
+
+  const effectiveRotationFreq: RotationFrequencySetting =
+    rotationStrategy === 'predictable_lengths'
+      ? 'predictable_lengths'
+      : rotationStrategy === 'minimum_interruptions'
+      ? 'minimum_interruptions'
+      : (fixedInterval as RotationFrequencySetting);
 
   // Preview tab & submission state
   const [activePreviewTab, setActivePreviewTab] = useState<'breakdown' | 'timeline'>('breakdown');
@@ -133,7 +143,16 @@ export default function MatchSetupPage({
           restoredAny = true;
         }
         if (parsed.rotationFreq) {
-          setRotationFreq(parsed.rotationFreq);
+          if (parsed.rotationFreq === 'predictable_lengths') {
+            setRotationStrategy('predictable_lengths');
+          } else if (parsed.rotationFreq === 'minimum_interruptions') {
+            setRotationStrategy('minimum_interruptions');
+          } else if (parsed.rotationFreq === 'auto') {
+            setRotationStrategy('predictable_lengths');
+          } else {
+            setRotationStrategy('fixed');
+            setFixedInterval(parsed.rotationFreq);
+          }
         }
 
         if (restoredAny) {
@@ -172,7 +191,7 @@ export default function MatchSetupPage({
         format,
         customPlayersOnPitch,
         gkPlayerIds,
-        rotationFreq,
+        rotationFreq: effectiveRotationFreq,
         savedAt: Date.now()
       };
       localStorage.setItem(`matchday_draft_${teamId}`, JSON.stringify(draft));
@@ -190,7 +209,7 @@ export default function MatchSetupPage({
     format,
     customPlayersOnPitch,
     gkPlayerIds,
-    rotationFreq
+    effectiveRotationFreq
   ]);
 
   // Handle manual draft reset
@@ -218,7 +237,8 @@ export default function MatchSetupPage({
     ]);
     setFormat('7v7');
     setCustomPlayersOnPitch(7);
-    setRotationFreq('auto');
+    setRotationStrategy('predictable_lengths');
+    setFixedInterval('5');
     setErrorMsg('');
   };
 
@@ -337,9 +357,9 @@ export default function MatchSetupPage({
       gkPlayerIds: gkPlayerIds.length > 0 ? gkPlayerIds : [attendingPlayerIds[0]],
       playersOnPitch,
       matches: plannerMatches,
-      rotationFrequency: rotationFreq
+      rotationFrequency: effectiveRotationFreq
     });
-  }, [attendingPlayerIds, gkPlayerIds, playersOnPitch, matchesList, format, rotationFreq]);
+  }, [attendingPlayerIds, gkPlayerIds, playersOnPitch, matchesList, format, effectiveRotationFreq]);
 
   // Validation & Submit
   const handleStartMatchday = async (e: React.FormEvent) => {
@@ -1046,25 +1066,193 @@ export default function MatchSetupPage({
               </div>
             )}
 
-            {/* Rotation Frequency */}
+            {/* Substitution Strategy Options */}
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label" style={{ fontSize: '0.82rem' }}>
-                Substitution Rotation Frequency
+              <label className="form-label" style={{ fontSize: '0.82rem', marginBottom: '8px' }}>
+                Substitution Strategy
               </label>
-              <select
-                className="form-input"
-                value={rotationFreq}
-                onChange={(e) => setRotationFreq(e.target.value as RotationFrequencySetting)}
-                style={{ minHeight: '42px', fontSize: '0.88rem' }}
-              >
-                <option value="auto">Auto (Optimally Balanced - Recommended)</option>
-                <option value="5">Every 5 minutes</option>
-                <option value="6">Every 6 minutes</option>
-                <option value="7.5">Every 7.5 minutes</option>
-                <option value="8">Every 8 minutes</option>
-                <option value="10">Every 10 minutes</option>
-                <option value="half_only">At Halves / Periods only</option>
-              </select>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px', marginBottom: '8px' }}>
+                {/* Option 1: Predictable Lengths */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRotationStrategy('predictable_lengths');
+                    hapticFeedback.tap();
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '12px',
+                    padding: '12px',
+                    borderRadius: 'var(--radius-md)',
+                    border: `1.5px solid ${rotationStrategy === 'predictable_lengths' ? 'var(--pitch-green)' : 'var(--border-subtle)'}`,
+                    background: rotationStrategy === 'predictable_lengths' ? 'rgba(16, 185, 129, 0.08)' : 'var(--bg-surface)',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: rotationStrategy === 'predictable_lengths' ? 'var(--pitch-green)' : 'var(--bg-elevated)',
+                      color: rotationStrategy === 'predictable_lengths' ? '#000' : 'var(--text-secondary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0
+                    }}
+                  >
+                    <Clock size={20} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#fff' }}>
+                        Predictable Lengths
+                      </span>
+                      <span
+                        style={{
+                          fontSize: '0.68rem',
+                          fontWeight: 700,
+                          background: 'rgba(16, 185, 129, 0.2)',
+                          color: 'var(--pitch-green-light)',
+                          padding: '2px 6px',
+                          borderRadius: 'var(--radius-full)'
+                        }}
+                      >
+                        Recommended
+                      </span>
+                    </div>
+                    <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.35 }}>
+                      Split substitutions up so they occur regularly and the minimum number of players is changed at each stoppage (1–2 players) for pitch stability.
+                    </p>
+                  </div>
+                </button>
+
+                {/* Option 2: Minimum Interruptions */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRotationStrategy('minimum_interruptions');
+                    hapticFeedback.tap();
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '12px',
+                    padding: '12px',
+                    borderRadius: 'var(--radius-md)',
+                    border: `1.5px solid ${rotationStrategy === 'minimum_interruptions' ? 'var(--sub-blue)' : 'var(--border-subtle)'}`,
+                    background: rotationStrategy === 'minimum_interruptions' ? 'rgba(59, 130, 246, 0.08)' : 'var(--bg-surface)',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: rotationStrategy === 'minimum_interruptions' ? 'var(--sub-blue)' : 'var(--bg-elevated)',
+                      color: rotationStrategy === 'minimum_interruptions' ? '#fff' : 'var(--text-secondary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0
+                    }}
+                  >
+                    <Zap size={20} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#fff' }}>
+                      Minimum Interruptions
+                    </span>
+                    <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.35 }}>
+                      Reduce the number of times play is stopped by bunching substitutions together, aligned with goalkeeper changes and period breaks.
+                    </p>
+                  </div>
+                </button>
+
+                {/* Option 3: Fixed Interval */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRotationStrategy('fixed');
+                    hapticFeedback.tap();
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '12px',
+                    padding: '12px',
+                    borderRadius: 'var(--radius-md)',
+                    border: `1.5px solid ${rotationStrategy === 'fixed' ? 'var(--powerplay-purple)' : 'var(--border-subtle)'}`,
+                    background: rotationStrategy === 'fixed' ? 'rgba(168, 85, 247, 0.08)' : 'var(--bg-surface)',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: rotationStrategy === 'fixed' ? 'var(--powerplay-purple)' : 'var(--bg-elevated)',
+                      color: rotationStrategy === 'fixed' ? '#fff' : 'var(--text-secondary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0
+                    }}
+                  >
+                    <Sliders size={20} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#fff' }}>
+                      Fixed Interval Cadence
+                    </span>
+                    <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.35 }}>
+                      Rotate at an exact recurring clock interval (e.g. every 5, 6, 7.5, or 10 minutes) regardless of other events.
+                    </p>
+                  </div>
+                </button>
+              </div>
+
+              {/* Fixed Interval Selector (only shown if Fixed Interval is selected) */}
+              {rotationStrategy === 'fixed' && (
+                <div
+                  style={{
+                    marginTop: '8px',
+                    padding: '12px',
+                    background: 'var(--bg-surface)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border-subtle)'
+                  }}
+                >
+                  <label className="form-label" style={{ fontSize: '0.8rem', marginBottom: '6px' }}>
+                    Choose Fixed Interval:
+                  </label>
+                  <select
+                    className="form-input"
+                    value={fixedInterval}
+                    onChange={(e) => setFixedInterval(e.target.value)}
+                    style={{ minHeight: '40px', fontSize: '0.85rem' }}
+                  >
+                    <option value="5">Every 5 minutes</option>
+                    <option value="6">Every 6 minutes</option>
+                    <option value="7.5">Every 7.5 minutes</option>
+                    <option value="8">Every 8 minutes</option>
+                    <option value="10">Every 10 minutes</option>
+                    <option value="12">Every 12 minutes</option>
+                    <option value="15">Every 15 minutes</option>
+                    <option value="half_only">At Halves / Periods only</option>
+                  </select>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1078,15 +1266,29 @@ export default function MatchSetupPage({
                 </div>
                 <span
                   style={{
-                    background: 'rgba(16, 185, 129, 0.15)',
-                    color: 'var(--pitch-green-light)',
+                    background:
+                      rotationPlan.maxDisparitySeconds === 0
+                        ? 'rgba(16, 185, 129, 0.15)'
+                        : rotationPlan.isFullyBalanced
+                        ? 'rgba(16, 185, 129, 0.15)'
+                        : 'rgba(59, 130, 246, 0.15)',
+                    color:
+                      rotationPlan.maxDisparitySeconds === 0
+                        ? 'var(--pitch-green-light)'
+                        : rotationPlan.isFullyBalanced
+                        ? 'var(--pitch-green-light)'
+                        : 'var(--sub-blue)',
                     fontWeight: 700,
                     fontSize: '0.75rem',
                     padding: '3px 8px',
                     borderRadius: 'var(--radius-full)'
                   }}
                 >
-                  {rotationPlan.isFullyBalanced ? '✓ 100% Balanced' : '✓ Highly Balanced'}
+                  {rotationPlan.maxDisparitySeconds === 0
+                    ? '✓ 100% Equal Time'
+                    : rotationPlan.isFullyBalanced
+                    ? '✓ Guaranteed Equal (<2m variance)'
+                    : `Bunched Rotations (±${formatTimeShort(rotationPlan.maxDisparitySeconds)})`}
                 </span>
               </div>
 
@@ -1140,6 +1342,31 @@ export default function MatchSetupPage({
                     ±{formatTimeShort(rotationPlan.maxDisparitySeconds)}
                   </div>
                 </div>
+              </div>
+
+              {/* Strategy Details Banner */}
+              <div
+                style={{
+                  fontSize: '0.78rem',
+                  color: 'var(--text-secondary)',
+                  background: 'var(--bg-surface)',
+                  padding: '8px 10px',
+                  borderRadius: 'var(--radius-sm)',
+                  marginBottom: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  border: '1px solid var(--border-subtle)'
+                }}
+              >
+                <Info size={15} color="var(--sub-blue)" style={{ flexShrink: 0 }} />
+                <span>
+                  {rotationStrategy === 'predictable_lengths'
+                    ? 'Predictable shifts: Rotations occur regularly with 1–2 players swapped per stoppage. Equal playing time is mathematically optimized across all outfield and goalkeeper shifts.'
+                    : rotationStrategy === 'minimum_interruptions'
+                    ? 'Minimum interruptions: Substitutions are bunched at key stoppages (GK rotations and period breaks) to minimize match pauses.'
+                    : `Fixed cadence: Substitutions scheduled every ${fixedInterval} minutes.`}
+                </span>
               </div>
 
               {/* Tabs for Breakdown vs Timeline */}

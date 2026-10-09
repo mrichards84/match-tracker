@@ -12,14 +12,42 @@ export interface ChangelogRelease {
   highlights: ChangelogHighlight[];
 }
 
-export const CURRENT_APP_VERSION = '0.4.1';
+export const CURRENT_APP_VERSION = '0.4.2';
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '0.4.2',
+    title: 'Equal Playing Time Accuracy & Substitution Strategies',
+    date: 'October 2026',
+    isLatest: true,
+    highlights: [
+      {
+        icon: 'refresh',
+        title: 'GK-Aware Equal Playing Time',
+        description: 'Fixed goalkeeper playing time bias by enforcing bench shifts during outfield windows, eliminating the 5-minute disparity.'
+      },
+      {
+        icon: 'clock',
+        title: 'Predictable Lengths Strategy',
+        description: 'New recommended substitution strategy that splits rotations evenly so minimal players (1–2) swap per stoppage for continuous team rhythm.'
+      },
+      {
+        icon: 'zap',
+        title: 'Minimum Interruptions Strategy',
+        description: 'Bunched substitutions grouped at key match stoppages (goalkeeper changes and period breaks) to minimize play pauses.'
+      },
+      {
+        icon: 'sparkles',
+        title: 'Fixed Interval Cadence',
+        description: 'Flexible recurring cadence (every 5m, 6m, 7.5m, 8m, 10m, or halves only) for traditional rotation schedules.'
+      }
+    ]
+  },
   {
     version: '0.4.1',
     title: 'Silent Alerts, Draft Auto-Save & Goalkeeper Glove Icon',
     date: 'October 2026',
-    isLatest: true,
+    isLatest: false,
     highlights: [
       {
         icon: 'zap',

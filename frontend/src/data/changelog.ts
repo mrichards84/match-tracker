@@ -12,14 +12,37 @@ export interface ChangelogRelease {
   highlights: ChangelogHighlight[];
 }
 
-export const CURRENT_APP_VERSION = '0.4.2';
+export const CURRENT_APP_VERSION = '0.4.3';
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '0.4.3',
+    title: 'Pure Pitch Substitutions & Streamlined Setup',
+    date: 'October 2026',
+    isLatest: true,
+    highlights: [
+      {
+        icon: 'refresh',
+        title: 'Pure Pitch Substitutions',
+        description: 'Removed complex goalkeeper rotation scheduling from setup so the algorithm solves pure equal pitch playing time without role-conflict confusion.'
+      },
+      {
+        icon: 'shield',
+        title: 'Optional Starting Goalkeeper',
+        description: 'Optionally designate a starting goalkeeper for each match during setup, while retaining the freedom to change goalkeepers on the fly in-game.'
+      },
+      {
+        icon: 'sparkles',
+        title: 'Streamlined Matchday Setup',
+        description: 'Simplified match setup workflow into 4 clean steps with crystal-clear target playing time and bench time metrics.'
+      }
+    ]
+  },
   {
     version: '0.4.2',
     title: 'Equal Playing Time Accuracy & Substitution Strategies',
     date: 'October 2026',
-    isLatest: true,
+    isLatest: false,
     highlights: [
       {
         icon: 'refresh',

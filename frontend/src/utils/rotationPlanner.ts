@@ -18,6 +18,7 @@ export interface MatchSetupConfig {
   format: MatchFormat;
   targetPeriods: number; // e.g. 1, 2, 4
   periodDurationMinutes: number; // e.g. 15, 20, 25
+  startingGoalkeeperId?: string; // Optional user-chosen starting goalkeeper
 }
 
 export type RotationFrequencySetting =
@@ -35,8 +36,8 @@ export type RotationFrequencySetting =
 
 export interface RotationPlannerInput {
   squadPlayerIds: string[]; // Attendance list (players physically present)
-  gkPlayerIds: string[]; // Ordered list of players taking turns in goal
-  playersOnPitch: number; // e.g. 7 for 7v7 (1 GK + 6 outfielders)
+  gkPlayerIds?: string[]; // Kept optional for backward compatibility
+  playersOnPitch: number; // e.g. 7 for 7v7
   matches: MatchSetupConfig[];
   rotationFrequency?: RotationFrequencySetting;
 }
@@ -47,19 +48,18 @@ export interface SlotLineup {
   startSecond: number;
   endSecond: number;
   durationSeconds: number;
-  gkPlayerId: string;
-  outfieldPlayerIds: string[];
+  pitchPlayerIds: string[];
   benchPlayerIds: string[];
+  gkPlayerId?: string;
 }
 
 export interface PlayerRotationSummary {
   playerId: string;
-  gkSeconds: number;
-  outfieldSeconds: number;
   totalPlayingSeconds: number;
   benchSeconds: number;
-  gkShiftsCount: number;
-  outfieldShiftsCount: number;
+  shiftsCount: number;
+  gkSeconds?: number;
+  outfieldSeconds?: number;
 }
 
 export interface PlannedMatchOutput {
@@ -88,11 +88,11 @@ export interface RotationPlanResult {
 }
 
 /**
- * Calculates equal playing time rotations and goalkeeper duties across 1 or more matches.
- * Uses a GK-aware urgency algorithm and 2-opt balance pass to eliminate goalkeeper minutes bias.
+ * Calculates equal playing time substitutions across 1 or more matches.
+ * Focuses purely on pitch vs bench rotations, ensuring fair playing time for all players.
  */
 export function calculateRotationPlan(input: RotationPlannerInput): RotationPlanResult {
-  const { squadPlayerIds, gkPlayerIds, playersOnPitch, matches, rotationFrequency = 'predictable_lengths' } = input;
+  const { squadPlayerIds, playersOnPitch, matches, rotationFrequency = 'predictable_lengths' } = input;
 
   const mode = rotationFrequency === 'auto' ? 'predictable_lengths' : rotationFrequency;
   const isFixedInterval = !['predictable_lengths', 'minimum_interruptions'].includes(mode);
@@ -117,7 +117,6 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
   }
 
   const effectivePlayersOnPitch = Math.min(playersOnPitch, squadPlayerIds.length);
-  const targetOutfieldCount = Math.max(0, effectivePlayersOnPitch - 1);
   const benchCount = Math.max(0, squadPlayerIds.length - effectivePlayersOnPitch);
 
   // 1. Calculate durations & targets across the matchday
@@ -132,38 +131,14 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
   );
   const targetBenchSecondsPerPlayer = totalMatchdaySeconds - targetPlayingSecondsPerPlayer;
 
-  const effectiveGkList = gkPlayerIds.filter((id) => squadPlayerIds.includes(id));
-  const effectiveGkCount = effectiveGkList.length;
-  const targetGkSecondsPerGoalkeeper =
-    effectiveGkCount > 0
-      ? Math.round(totalMatchdaySeconds / effectiveGkCount)
-      : 0;
-
-  // 2. Global Goalkeeper Shifts (exact equal chunks across the matchday)
-  interface GlobalGkShift {
-    playerId: string;
-    startGlobal: number;
-    endGlobal: number;
-  }
-  const gkShifts: GlobalGkShift[] = [];
-  if (effectiveGkCount > 0) {
-    const shiftDur = totalMatchdaySeconds / effectiveGkCount;
-    for (let g = 0; g < effectiveGkCount; g++) {
-      gkShifts.push({
-        playerId: effectiveGkList[g],
-        startGlobal: Math.round(g * shiftDur),
-        endGlobal: Math.round((g + 1) * shiftDur)
-      });
-    }
-  }
-
-  // 3. Generate raw stoppage timestamps across all matches
+  // 2. Generate raw stoppage timestamps across all matches
   interface MatchIntervalDef {
     matchIdx: number;
     matchGlobalStart: number;
     matchDuration: number;
     periodDuration: number;
     periods: number;
+    startingGoalkeeperId?: string;
   }
 
   const matchDefs: MatchIntervalDef[] = [];
@@ -176,7 +151,8 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
       matchGlobalStart: gOffset,
       matchDuration: mDur,
       periodDuration: pDur,
-      periods: m.targetPeriods
+      periods: m.targetPeriods,
+      startingGoalkeeperId: m.startingGoalkeeperId
     });
     gOffset += mDur;
   });
@@ -192,28 +168,19 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
     rawGlobalTimestamps.push(mDef.matchGlobalStart + mDef.matchDuration);
   });
 
-  // Add GK shift change boundaries
-  gkShifts.forEach((s) => {
-    if (s.startGlobal > 0 && s.startGlobal < totalMatchdaySeconds) {
-      rawGlobalTimestamps.push(s.startGlobal);
-    }
-  });
-
   // Add strategy-specific substitution points
   if (benchCount > 0) {
     matchDefs.forEach((mDef) => {
       const matchSeconds = mDef.matchDuration;
       if (mode === 'minimum_interruptions') {
         // Bunched substitutions: minimize stoppages.
-        // If match has no internal GK change or period breaks, add minimum needed stoppage.
-        const minSlotsNeeded = Math.max(2, Math.ceil(squadPlayerIds.length / Math.max(1, benchCount)));
+        const minSlotsNeeded = Math.max(2, Math.ceil(squadPlayerIds.length / benchCount));
         const step = matchSeconds / minSlotsNeeded;
         for (let s = 1; s < minSlotsNeeded; s++) {
           rawGlobalTimestamps.push(mDef.matchGlobalStart + Math.round(s * step));
         }
       } else if (mode === 'predictable_lengths') {
         // Predictable lengths: rotate regularly with minimum players changed per stoppage (1 or 2 players).
-        // Target squadPlayerIds.length slots across the match gives clean 1-shift rotation.
         const targetSlots = Math.max(4, squadPlayerIds.length);
         const step = matchSeconds / targetSlots;
         for (let s = 1; s < targetSlots; s++) {
@@ -231,7 +198,7 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
     });
   }
 
-  // Snap nearby timestamps (within 120 seconds of each other) to prevent awkward 1-minute stints
+  // Snap nearby timestamps (< 90s)
   const sortedGlobal = Array.from(new Set(rawGlobalTimestamps))
     .sort((a, b) => a - b)
     .filter((t) => t >= 0 && t <= totalMatchdaySeconds);
@@ -243,10 +210,8 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
       snappedGlobal.push(cur);
     } else {
       const prev = snappedGlobal[snappedGlobal.length - 1];
-      // Don't merge across match boundaries
       const isMatchBoundary = matchDefs.some((m) => m.matchGlobalStart === cur);
-      if (!isMatchBoundary && cur - prev < 120 && cur < totalMatchdaySeconds) {
-        // Snap to closest 5-minute mark or average
+      if (!isMatchBoundary && cur - prev < 90 && cur < totalMatchdaySeconds) {
         if (cur % 300 === 0) {
           snappedGlobal[snappedGlobal.length - 1] = cur;
         } else if (prev % 300 !== 0) {
@@ -258,17 +223,17 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
     }
   }
 
-  // 4. Construct Slices across matches
+  // 3. Construct Slices across matches
   interface GlobalSlice {
     sliceIndex: number;
     matchIdx: number;
     period: number;
-    startSecond: number; // match-local start
-    endSecond: number; // match-local end
+    startSecond: number;
+    endSecond: number;
     durationSeconds: number;
     globalStartSecond: number;
     globalEndSecond: number;
-    gkPlayerId: string;
+    matchDef: MatchIntervalDef;
   }
 
   const slices: GlobalSlice[] = [];
@@ -279,7 +244,6 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
       const dur = tGlobal - prevGlobal;
       const midGlobal = (prevGlobal + tGlobal) / 2;
 
-      // Find which match this slice belongs to
       const mDef =
         matchDefs.find(
           (m) => midGlobal >= m.matchGlobalStart && midGlobal < m.matchGlobalStart + m.matchDuration
@@ -292,12 +256,6 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
         Math.floor(localStart / mDef.periodDuration) + 1
       );
 
-      // Determine GK for this slice
-      const currentGk =
-        gkShifts.find((s) => midGlobal >= s.startGlobal && midGlobal < s.endGlobal)?.playerId ||
-        effectiveGkList[0] ||
-        squadPlayerIds[0];
-
       slices.push({
         sliceIndex: slices.length,
         matchIdx: mDef.matchIdx,
@@ -307,79 +265,57 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
         durationSeconds: dur,
         globalStartSecond: prevGlobal,
         globalEndSecond: tGlobal,
-        gkPlayerId: currentGk
+        matchDef: mDef
       });
 
       prevGlobal = tGlobal;
     }
   }
 
-  // 5. Lineup assignment using GK-Aware Bench Urgency
+  // 4. Lineup assignment balancing pitch vs bench time
   const playedSeconds = new Map<string, number>();
-  const gkSeconds = new Map<string, number>();
-  const outfieldSeconds = new Map<string, number>();
   const benchSeconds = new Map<string, number>();
   const consecutiveBenchCount = new Map<string, number>();
 
   squadPlayerIds.forEach((id) => {
     playedSeconds.set(id, 0);
-    gkSeconds.set(id, 0);
-    outfieldSeconds.set(id, 0);
     benchSeconds.set(id, 0);
     consecutiveBenchCount.set(id, 0);
   });
 
-  const getFutureGkTime = (playerId: string, fromGlobalSec: number) => {
-    let s = 0;
-    for (const sh of gkShifts) {
-      if (sh.playerId === playerId && sh.endGlobal > fromGlobalSec) {
-        s += sh.endGlobal - Math.max(fromGlobalSec, sh.startGlobal);
-      }
-    }
-    return s;
-  };
-
   interface SliceLineup {
-    gk: string;
-    outfield: string[];
+    pitch: string[];
     bench: string[];
   }
   const sliceLineups: SliceLineup[] = [];
 
   slices.forEach((slice) => {
-    const slotGK = slice.gkPlayerId;
-    playedSeconds.set(slotGK, (playedSeconds.get(slotGK) || 0) + slice.durationSeconds);
-    gkSeconds.set(slotGK, (gkSeconds.get(slotGK) || 0) + slice.durationSeconds);
-    consecutiveBenchCount.set(slotGK, 0);
+    const candidates = [...squadPlayerIds];
+    const isFirstSliceOfMatch = slice.startSecond === 0;
+    const designatedGk = slice.matchDef.startingGoalkeeperId;
 
-    const candidates = squadPlayerIds.filter((id) => id !== slotGK);
-    const neededBench = Math.max(0, candidates.length - targetOutfieldCount);
-
-    // Sort outfield candidates by who needs to sit on bench most urgently
     candidates.sort((a, b) => {
+      // If a starting GK is designated for this match, guarantee they start on the pitch in kickoff slot
+      if (isFirstSliceOfMatch && designatedGk) {
+        if (a === designatedGk) return 1;
+        if (b === designatedGk) return -1;
+      }
+
       const benchDeficitA = targetBenchSecondsPerPlayer - (benchSeconds.get(a) || 0);
       const benchDeficitB = targetBenchSecondsPerPlayer - (benchSeconds.get(b) || 0);
 
       const remMatchday = totalMatchdaySeconds - slice.globalStartSecond;
-      const futGkA = getFutureGkTime(a, slice.globalStartSecond);
-      const futGkB = getFutureGkTime(b, slice.globalStartSecond);
-      const availA = Math.max(0, remMatchday - futGkA);
-      const availB = Math.max(0, remMatchday - futGkB);
+      const urgA = remMatchday > 0 ? benchDeficitA / remMatchday : 0;
+      const urgB = remMatchday > 0 ? benchDeficitB / remMatchday : 0;
 
-      const urgA = availA > 0 ? benchDeficitA / availA : benchDeficitA > 0 ? 10 : -10;
-      const urgB = availB > 0 ? benchDeficitB / availB : benchDeficitB > 0 ? 10 : -10;
-
-      // Primary: urgency difference
-      if (Math.abs(urgA - urgB) > 0.08) {
+      if (Math.abs(urgA - urgB) > 0.05) {
         return urgB - urgA;
       }
 
-      // Secondary: bench deficit in seconds
-      if (Math.abs(benchDeficitA - benchDeficitB) > 20) {
+      if (Math.abs(benchDeficitA - benchDeficitB) > 15) {
         return benchDeficitB - benchDeficitA;
       }
 
-      // Rest bonus: avoid benching the same player multiple consecutive slots if others can rotate
       const restA = consecutiveBenchCount.get(a) || 0;
       const restB = consecutiveBenchCount.get(b) || 0;
       if (restA > 0 && restB === 0) return 1;
@@ -388,12 +324,11 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
       return benchDeficitB - benchDeficitA;
     });
 
-    const chosenBench = candidates.slice(0, neededBench);
-    const chosenOutfield = candidates.slice(neededBench);
+    const chosenBench = candidates.slice(0, benchCount);
+    const chosenPitch = candidates.slice(benchCount);
 
-    chosenOutfield.forEach((id) => {
+    chosenPitch.forEach((id) => {
       playedSeconds.set(id, (playedSeconds.get(id) || 0) + slice.durationSeconds);
-      outfieldSeconds.set(id, (outfieldSeconds.get(id) || 0) + slice.durationSeconds);
       consecutiveBenchCount.set(id, 0);
     });
 
@@ -403,20 +338,18 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
     });
 
     sliceLineups.push({
-      gk: slotGK,
-      outfield: chosenOutfield,
+      pitch: chosenPitch,
       bench: chosenBench
     });
   });
 
-  // 6. Local 2-opt swap pass to eliminate residual disparity
+  // 5. Local 2-opt swap pass to eliminate residual disparity
   const calcTotals = () => {
     const map = new Map<string, number>();
     squadPlayerIds.forEach((id) => map.set(id, 0));
     sliceLineups.forEach((l, idx) => {
       const dur = slices[idx].durationSeconds;
-      map.set(l.gk, (map.get(l.gk) || 0) + dur);
-      l.outfield.forEach((id) => map.set(id, (map.get(id) || 0) + dur));
+      l.pitch.forEach((id) => map.set(id, (map.get(id) || 0) + dur));
     });
     return map;
   };
@@ -430,17 +363,22 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
     const leastPlayed = sorted[sorted.length - 1];
     const disp = (currentTotals.get(mostPlayed) || 0) - (currentTotals.get(leastPlayed) || 0);
 
-    if (disp <= 60) break; // within 1 minute across the matchday is fully balanced
+    if (disp <= 60) break;
 
     let swapped = false;
     for (let s = 0; s < sliceLineups.length; s++) {
       const l = sliceLineups[s];
       const dur = slices[s].durationSeconds;
-      if (dur > disp) continue; // swapping here would overshoot
+      if (dur > disp) continue;
+
+      const sl = slices[s];
+      const isKickoff = sl.startSecond === 0;
+      const designatedGk = sl.matchDef.startingGoalkeeperId;
 
       for (let i = 0; i < sorted.length; i++) {
         const pHigh = sorted[i];
-        if (!l.outfield.includes(pHigh)) continue;
+        if (!l.pitch.includes(pHigh)) continue;
+        if (isKickoff && pHigh === designatedGk) continue;
 
         for (let j = sorted.length - 1; j > i; j--) {
           const pLow = sorted[j];
@@ -448,7 +386,7 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
 
           const diff = (currentTotals.get(pHigh) || 0) - (currentTotals.get(pLow) || 0);
           if (diff >= dur * 1.5) {
-            l.outfield = l.outfield.map((id) => (id === pHigh ? pLow : id));
+            l.pitch = l.pitch.map((id) => (id === pHigh ? pLow : id));
             l.bench = l.bench.map((id) => (id === pLow ? pHigh : id));
             currentTotals = calcTotals();
             swapped = true;
@@ -462,21 +400,15 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
     if (!swapped) break;
   }
 
-  // 7. Recalculate definitive stats from final lineup
+  // 6. Recalculate definitive stats
   const finalPlayed = new Map<string, number>();
-  const finalGk = new Map<string, number>();
-  const finalOutfield = new Map<string, number>();
   const finalBench = new Map<string, number>();
-  const finalGkShifts = new Map<string, number>();
-  const finalOutfieldShifts = new Map<string, number>();
+  const finalShifts = new Map<string, number>();
 
   squadPlayerIds.forEach((id) => {
     finalPlayed.set(id, 0);
-    finalGk.set(id, 0);
-    finalOutfield.set(id, 0);
     finalBench.set(id, 0);
-    finalGkShifts.set(id, 0);
-    finalOutfieldShifts.set(id, 0);
+    finalShifts.set(id, 0);
   });
 
   const slotResults: SlotLineup[] = [];
@@ -485,14 +417,9 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
     const sl = slices[idx];
     const dur = sl.durationSeconds;
 
-    finalPlayed.set(lineup.gk, (finalPlayed.get(lineup.gk) || 0) + dur);
-    finalGk.set(lineup.gk, (finalGk.get(lineup.gk) || 0) + dur);
-    finalGkShifts.set(lineup.gk, (finalGkShifts.get(lineup.gk) || 0) + 1);
-
-    lineup.outfield.forEach((id) => {
+    lineup.pitch.forEach((id) => {
       finalPlayed.set(id, (finalPlayed.get(id) || 0) + dur);
-      finalOutfield.set(id, (finalOutfield.get(id) || 0) + dur);
-      finalOutfieldShifts.set(id, (finalOutfieldShifts.get(id) || 0) + 1);
+      finalShifts.set(id, (finalShifts.get(id) || 0) + 1);
     });
 
     lineup.bench.forEach((id) => {
@@ -505,20 +432,26 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
       startSecond: sl.startSecond,
       endSecond: sl.endSecond,
       durationSeconds: dur,
-      gkPlayerId: lineup.gk,
-      outfieldPlayerIds: lineup.outfield,
-      benchPlayerIds: lineup.bench
+      pitchPlayerIds: lineup.pitch,
+      benchPlayerIds: lineup.bench,
+      gkPlayerId: sl.matchDef.startingGoalkeeperId || lineup.pitch[0]
     });
   });
 
-  // 8. Construct PlannedMatchOutput with substitutions
+  // 7. Construct PlannedMatchOutput with substitutions
   const matchOutputs: PlannedMatchOutput[] = matches.map((m, mIdx) => {
     const matchSlots = slotResults.filter((s) => s.matchIndex === mIdx + 1);
     const firstSlot = matchSlots[0];
 
-    const startingGK = firstSlot?.gkPlayerId;
-    const startingOutfield = firstSlot?.outfieldPlayerIds || [];
+    const startingPitch = firstSlot?.pitchPlayerIds || [];
     const startingBench = firstSlot?.benchPlayerIds || [];
+
+    // Designated starting GK (or first player in starting pitch)
+    const startingGK = m.startingGoalkeeperId && startingPitch.includes(m.startingGoalkeeperId)
+      ? m.startingGoalkeeperId
+      : startingPitch[0];
+
+    const startingOutfield = startingPitch.filter((id) => id !== startingGK);
 
     const plannedSubs: PlannedSubstitution[] = [];
 
@@ -526,62 +459,39 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
       const prevSlot = matchSlots[i - 1];
       const curSlot = matchSlots[i];
 
-      const gkChanged = prevSlot.gkPlayerId !== curSlot.gkPlayerId;
-
-      // Identify outfielders leaving pitch to bench
-      const outfieldersLeaving = prevSlot.outfieldPlayerIds.filter(
-        (id) => !curSlot.outfieldPlayerIds.includes(id) && id !== curSlot.gkPlayerId
+      const leavingPitch = prevSlot.pitchPlayerIds.filter(
+        (id) => !curSlot.pitchPlayerIds.includes(id)
       );
-
-      // Identify players entering outfield from bench
-      const outfieldersEntering = curSlot.outfieldPlayerIds.filter(
-        (id) => !prevSlot.outfieldPlayerIds.includes(id) && id !== prevSlot.gkPlayerId
+      const enteringPitch = curSlot.pitchPlayerIds.filter(
+        (id) => !prevSlot.pitchPlayerIds.includes(id)
       );
 
       const outfieldChanges: PlannedSubChange[] = [];
-      const changeCount = Math.min(outfieldersLeaving.length, outfieldersEntering.length);
+      const changeCount = Math.min(leavingPitch.length, enteringPitch.length);
 
       for (let c = 0; c < changeCount; c++) {
         outfieldChanges.push({
-          inPlayerId: outfieldersEntering[c],
-          outPlayerId: outfieldersLeaving[c]
+          inPlayerId: enteringPitch[c],
+          outPlayerId: leavingPitch[c]
         });
       }
 
-      // If lengths differ due to GK swap role change
-      if (outfieldersEntering.length > changeCount) {
-        for (let extra = changeCount; extra < outfieldersEntering.length; extra++) {
-          outfieldChanges.push({
-            inPlayerId: outfieldersEntering[extra],
-            outPlayerId: prevSlot.gkPlayerId // departing GK moved to outfield
-          });
-        }
-      } else if (outfieldersLeaving.length > changeCount) {
-        for (let extra = changeCount; extra < outfieldersLeaving.length; extra++) {
-          outfieldChanges.push({
-            inPlayerId: curSlot.gkPlayerId, // entering GK came from outfield
-            outPlayerId: outfieldersLeaving[extra]
-          });
-        }
-      }
+      if (outfieldChanges.length > 0) {
+        // Current GK remains startingGK unless they were substituted off, in which case first remaining pitch player takes goal
+        const currentGK = curSlot.pitchPlayerIds.includes(startingGK)
+          ? startingGK
+          : curSlot.pitchPlayerIds[0];
 
-      if (gkChanged || outfieldChanges.length > 0) {
         plannedSubs.push({
           id: generateUUID(),
           period: curSlot.period,
           timestampSeconds: curSlot.startSecond,
           label: formatMMSS(curSlot.startSecond),
-          gkChange: gkChanged
-            ? {
-                inPlayerId: curSlot.gkPlayerId,
-                outPlayerId: prevSlot.gkPlayerId
-              }
-            : undefined,
           outfieldChanges,
           applied: false,
           dismissed: false,
-          targetGoalkeeperId: curSlot.gkPlayerId,
-          targetOutfieldPlayerIds: [...curSlot.outfieldPlayerIds],
+          targetGoalkeeperId: currentGK,
+          targetOutfieldPlayerIds: curSlot.pitchPlayerIds.filter((id) => id !== currentGK),
           targetBenchPlayerIds: [...curSlot.benchPlayerIds]
         });
       }
@@ -602,15 +512,14 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
     };
   });
 
-  // 9. Player summaries & fairness assessment
+  // 8. Player summaries & fairness assessment
   const playerSummaries: PlayerRotationSummary[] = squadPlayerIds.map((id) => ({
     playerId: id,
-    gkSeconds: finalGk.get(id) || 0,
-    outfieldSeconds: finalOutfield.get(id) || 0,
     totalPlayingSeconds: finalPlayed.get(id) || 0,
     benchSeconds: finalBench.get(id) || 0,
-    gkShiftsCount: finalGkShifts.get(id) || 0,
-    outfieldShiftsCount: finalOutfieldShifts.get(id) || 0
+    shiftsCount: finalShifts.get(id) || 0,
+    gkSeconds: 0,
+    outfieldSeconds: finalPlayed.get(id) || 0
   }));
 
   const allPlayedSeconds = playerSummaries.map((p) => p.totalPlayingSeconds);
@@ -622,10 +531,9 @@ export function calculateRotationPlan(input: RotationPlannerInput): RotationPlan
     matches: matchOutputs,
     playerSummaries,
     targetPlayingSecondsPerPlayer,
-    targetGkSecondsPerGoalkeeper,
+    targetGkSecondsPerGoalkeeper: 0,
     maxDisparitySeconds,
     totalMatchdaySeconds,
-    // Fully balanced if disparity is within 2 minutes across the entire matchday
     isFullyBalanced: maxDisparitySeconds <= 120,
     strategyMode
   };

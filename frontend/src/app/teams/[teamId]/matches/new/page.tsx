@@ -57,6 +57,7 @@ interface ConfiguredMatch {
   opposition: string;
   targetPeriods: number; // e.g. 2 halves
   periodDurationMinutes: number; // e.g. 20 mins
+  startingGoalkeeperId?: string; // optional starting GK
 }
 
 export default function MatchSetupPage({
@@ -95,10 +96,7 @@ export default function MatchSetupPage({
   const [format, setFormat] = useState<MatchFormat>('7v7');
   const [customPlayersOnPitch, setCustomPlayersOnPitch] = useState<number>(7);
 
-  // --- Step 4: Goalkeepers (who shares GK duties) ---
-  const [gkPlayerIds, setGkPlayerIds] = useState<string[]>([]);
-
-  // --- Step 5: Substitution Strategy & Frequency ---
+  // --- Step 4: Substitution Strategy & Frequency ---
   const [rotationStrategy, setRotationStrategy] = useState<'predictable_lengths' | 'minimum_interruptions' | 'fixed'>('predictable_lengths');
   const [fixedInterval, setFixedInterval] = useState<string>('5');
 
@@ -137,10 +135,6 @@ export default function MatchSetupPage({
         }
         if (typeof parsed.customPlayersOnPitch === 'number') {
           setCustomPlayersOnPitch(parsed.customPlayersOnPitch);
-        }
-        if (Array.isArray(parsed.gkPlayerIds) && parsed.gkPlayerIds.length > 0) {
-          setGkPlayerIds(parsed.gkPlayerIds);
-          restoredAny = true;
         }
         if (parsed.rotationFreq) {
           if (parsed.rotationFreq === 'predictable_lengths') {
@@ -190,7 +184,6 @@ export default function MatchSetupPage({
         matchesList,
         format,
         customPlayersOnPitch,
-        gkPlayerIds,
         rotationFreq: effectiveRotationFreq,
         savedAt: Date.now()
       };
@@ -208,7 +201,6 @@ export default function MatchSetupPage({
     matchesList,
     format,
     customPlayersOnPitch,
-    gkPlayerIds,
     effectiveRotationFreq
   ]);
 
@@ -222,10 +214,8 @@ export default function MatchSetupPage({
     setIsDraftRestored(false);
     if (allActivePlayers && allActivePlayers.length > 0) {
       setAttendingPlayerIds(allActivePlayers.map((p) => p.id));
-      setGkPlayerIds([allActivePlayers[0].id]);
     } else {
       setAttendingPlayerIds([]);
-      setGkPlayerIds([]);
     }
     setMatchesList([
       {
@@ -253,17 +243,6 @@ export default function MatchSetupPage({
     return map;
   }, [allActivePlayers]);
 
-  // Auto-select initial GK if attending players change and no GK selected yet
-  useEffect(() => {
-    if (attendingPlayerIds.length > 0 && gkPlayerIds.length === 0) {
-      // Pick first attending player as default GK
-      setGkPlayerIds([attendingPlayerIds[0]]);
-    } else {
-      // Filter out any GKs no longer in attending squad
-      setGkPlayerIds((prev) => prev.filter((id) => attendingPlayerIds.includes(id)));
-    }
-  }, [attendingPlayerIds]);
-
   // Toggle Attendance
   const handleToggleAttendance = (playerId: string) => {
     hapticFeedback.tap();
@@ -289,31 +268,6 @@ export default function MatchSetupPage({
     setAttendingPlayerIds([]);
   };
 
-  // Toggle Goalkeeper
-  const handleToggleGK = (playerId: string) => {
-    hapticFeedback.tap();
-    setErrorMsg('');
-    setGkPlayerIds((prev) => {
-      if (prev.includes(playerId)) {
-        return prev.filter((id) => id !== playerId);
-      } else {
-        return [...prev, playerId];
-      }
-    });
-  };
-
-  // Move GK in sequence
-  const handleMoveGK = (index: number, direction: 'up' | 'down') => {
-    hapticFeedback.tap();
-    const newIdx = direction === 'up' ? index - 1 : index + 1;
-    if (newIdx < 0 || newIdx >= gkPlayerIds.length) return;
-    const copy = [...gkPlayerIds];
-    const temp = copy[index];
-    copy[index] = copy[newIdx];
-    copy[newIdx] = temp;
-    setGkPlayerIds(copy);
-  };
-
   // Match List actions
   const handleAddMatch = () => {
     hapticFeedback.tap();
@@ -323,7 +277,8 @@ export default function MatchSetupPage({
         id: generateUUID(),
         opposition: '',
         targetPeriods: prev[prev.length - 1]?.targetPeriods || 2,
-        periodDurationMinutes: prev[prev.length - 1]?.periodDurationMinutes || 20
+        periodDurationMinutes: prev[prev.length - 1]?.periodDurationMinutes || 20,
+        startingGoalkeeperId: undefined
       }
     ]);
   };
@@ -349,17 +304,17 @@ export default function MatchSetupPage({
       opposition: m.opposition.trim() || `Game ${idx + 1}`,
       format,
       targetPeriods: m.targetPeriods,
-      periodDurationMinutes: m.periodDurationMinutes
+      periodDurationMinutes: m.periodDurationMinutes,
+      startingGoalkeeperId: m.startingGoalkeeperId
     }));
 
     return calculateRotationPlan({
       squadPlayerIds: attendingPlayerIds,
-      gkPlayerIds: gkPlayerIds.length > 0 ? gkPlayerIds : [attendingPlayerIds[0]],
       playersOnPitch,
       matches: plannerMatches,
       rotationFrequency: effectiveRotationFreq
     });
-  }, [attendingPlayerIds, gkPlayerIds, playersOnPitch, matchesList, format, effectiveRotationFreq]);
+  }, [attendingPlayerIds, playersOnPitch, matchesList, format, effectiveRotationFreq]);
 
   // Validation & Submit
   const handleStartMatchday = async (e: React.FormEvent) => {
@@ -373,11 +328,6 @@ export default function MatchSetupPage({
 
     if (matchesList.some((m) => !m.opposition.trim())) {
       setErrorMsg('Please enter an opposition team name for all matches.');
-      return;
-    }
-
-    if (gkPlayerIds.length === 0) {
-      setErrorMsg('Please select at least 1 player to play in goal.');
       return;
     }
 
@@ -447,7 +397,7 @@ export default function MatchSetupPage({
 
           // Squad & rotation plan
           matchdaySquadPlayerIds: attendingPlayerIds,
-          plannedGkPlayerIds: gkPlayerIds,
+          plannedGkPlayerIds: planMatch.startingGoalkeeperId ? [planMatch.startingGoalkeeperId] : [],
           plannedSubstitutions: planMatch.plannedSubstitutions,
 
           // Starting lineup
@@ -701,179 +651,12 @@ export default function MatchSetupPage({
             )}
           </div>
 
-          {/* Section 2: Goalkeeping Duties */}
-          <div className="card">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-              <div className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <GoalkeeperIcon size={20} color="var(--gk-gold)" />
-                <span>2. Who Will Play In Goal?</span>
-              </div>
-              <span
-                style={{
-                  fontSize: '0.75rem',
-                  fontWeight: 700,
-                  color: 'var(--gk-gold)',
-                  background: 'rgba(245, 158, 11, 0.12)',
-                  padding: '3px 8px',
-                  borderRadius: 'var(--radius-full)'
-                }}
-              >
-                {gkPlayerIds.length} GK{gkPlayerIds.length === 1 ? '' : 's'} Selected
-              </span>
-            </div>
-
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
-              Select 1 or more players to share goal duties. GK minutes are divided equally across matches, and outfield minutes balance automatically.
-            </p>
-
-            {/* Quick GK selector chips */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-                gap: '8px',
-                marginBottom: '14px'
-              }}
-            >
-              {attendingPlayerIds.map((playerId) => {
-                const isGK = gkPlayerIds.includes(playerId);
-                const playerName = playerMap.get(playerId) || 'Player';
-                const gkOrder = gkPlayerIds.indexOf(playerId) + 1;
-
-                return (
-                  <button
-                    key={playerId}
-                    type="button"
-                    onClick={() => handleToggleGK(playerId)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '8px 10px',
-                      borderRadius: 'var(--radius-md)',
-                      background: isGK ? 'rgba(245, 158, 11, 0.15)' : 'var(--bg-surface)',
-                      border: isGK ? '1.5px solid var(--gk-gold)' : '1px solid var(--border-subtle)',
-                      color: isGK ? '#fff' : 'var(--text-secondary)',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-                      <div
-                        style={{
-                          width: '26px',
-                          height: '26px',
-                          borderRadius: '50%',
-                          background: isGK ? 'var(--gk-gold)' : 'var(--bg-elevated)',
-                          color: isGK ? '#000' : 'var(--text-secondary)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontWeight: 800,
-                          fontSize: '0.75rem',
-                          flexShrink: 0
-                        }}
-                      >
-                        {isGK ? gkOrder : '🧤'}
-                      </div>
-                      <span
-                        style={{
-                          fontSize: '0.85rem',
-                          fontWeight: isGK ? 700 : 500,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}
-                      >
-                        {playerName}
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Selected GK Rotation Order & Reordering */}
-            {gkPlayerIds.length > 1 && (
-              <div
-                style={{
-                  background: 'var(--bg-surface)',
-                  borderRadius: 'var(--radius-md)',
-                  padding: '10px 12px',
-                  border: '1px solid var(--border-subtle)'
-                }}
-              >
-                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--gk-gold)', marginBottom: '8px' }}>
-                  Rotation Order ({rotationPlan ? formatTimeShort(rotationPlan.targetGkSecondsPerGoalkeeper) : ''} each in goal):
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {gkPlayerIds.map((pId, idx) => (
-                    <div
-                      key={pId}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '6px 10px',
-                        background: 'var(--bg-card)',
-                        borderRadius: 'var(--radius-sm)',
-                        fontSize: '0.85rem'
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span
-                          style={{
-                            width: '20px',
-                            height: '20px',
-                            borderRadius: '50%',
-                            background: 'var(--gk-gold)',
-                            color: '#000',
-                            fontWeight: 800,
-                            fontSize: '0.7rem',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                          }}
-                        >
-                          {idx + 1}
-                        </span>
-                        <span style={{ fontWeight: 600 }}>{playerMap.get(pId)}</span>
-                      </div>
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        <button
-                          type="button"
-                          disabled={idx === 0}
-                          onClick={() => handleMoveGK(idx, 'up')}
-                          className="icon-button"
-                          style={{ width: '28px', height: '28px', opacity: idx === 0 ? 0.3 : 1 }}
-                          aria-label="Move GK up"
-                        >
-                          <ChevronUp size={16} />
-                        </button>
-                        <button
-                          type="button"
-                          disabled={idx === gkPlayerIds.length - 1}
-                          onClick={() => handleMoveGK(idx, 'down')}
-                          className="icon-button"
-                          style={{ width: '28px', height: '28px', opacity: idx === gkPlayerIds.length - 1 ? 0.3 : 1 }}
-                          aria-label="Move GK down"
-                        >
-                          <ChevronDown size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Section 3: Matches & Opposition Configuration */}
+          {/* Section 2: Matches & Opposition Configuration */}
           <div className="card">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
               <div className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Calendar size={18} color="var(--sub-blue)" />
-                <span>3. Matches & Opposition</span>
+                <span>2. Matches & Opposition</span>
               </div>
               <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
                 Total: <strong>{totalMatchdayMins} mins</strong> ({matchesList.length} game{matchesList.length === 1 ? '' : 's'})
@@ -999,6 +782,29 @@ export default function MatchSetupPage({
                         </select>
                       </div>
                     </div>
+
+                    {/* Optional Starting Goalkeeper */}
+                    <div className="form-group" style={{ marginTop: '10px', marginBottom: 0 }}>
+                      <label className="form-label" style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <GoalkeeperIcon size={16} color="var(--gk-gold)" />
+                        <span>Starting Goalkeeper (Optional)</span>
+                      </label>
+                      <select
+                        className="form-input"
+                        value={matchItem.startingGoalkeeperId || ''}
+                        onChange={(e) =>
+                          handleUpdateMatch(idx, { startingGoalkeeperId: e.target.value || undefined })
+                        }
+                        style={{ minHeight: '40px', fontSize: '0.85rem' }}
+                      >
+                        <option value="">Auto (First player on pitch starts in goal)</option>
+                        {attendingPlayerIds.map((pId) => (
+                          <option key={pId} value={pId}>
+                            {playerMap.get(pId) || 'Player'}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 );
               })}
@@ -1021,11 +827,11 @@ export default function MatchSetupPage({
             </button>
           </div>
 
-          {/* Section 4: Game Format & Frequency */}
+          {/* Section 3: Game Format & Frequency */}
           <div className="card">
             <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
               <Layers size={18} color="var(--powerplay-purple)" />
-              <span>4. Pitch Format & Rotation Pacing</span>
+              <span>3. Pitch Format & Rotation Pacing</span>
             </div>
 
             {/* Match Format Selector */}
@@ -1262,7 +1068,7 @@ export default function MatchSetupPage({
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
                 <div className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Sparkles size={18} color="var(--pitch-green)" />
-                  <span>5. Equal Playing Time Guarantee</span>
+                  <span>4. Equal Playing Time Guarantee</span>
                 </div>
                 <span
                   style={{
@@ -1323,9 +1129,9 @@ export default function MatchSetupPage({
                     textAlign: 'center'
                   }}
                 >
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>GK Time Each</div>
-                  <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--gk-gold)' }}>
-                    {formatTimeShort(rotationPlan.targetGkSecondsPerGoalkeeper)}
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Bench Time Each</div>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-secondary)' }}>
+                    {formatTimeShort(rotationPlan.totalMatchdaySeconds - rotationPlan.targetPlayingSecondsPerPlayer)}
                   </div>
                 </div>
 
@@ -1362,9 +1168,9 @@ export default function MatchSetupPage({
                 <Info size={15} color="var(--sub-blue)" style={{ flexShrink: 0 }} />
                 <span>
                   {rotationStrategy === 'predictable_lengths'
-                    ? 'Predictable shifts: Rotations occur regularly with 1–2 players swapped per stoppage. Equal playing time is mathematically optimized across all outfield and goalkeeper shifts.'
+                    ? 'Predictable shifts: Rotations occur regularly with 1–2 players swapped per stoppage for pitch stability and equal playing time.'
                     : rotationStrategy === 'minimum_interruptions'
-                    ? 'Minimum interruptions: Substitutions are bunched at key stoppages (GK rotations and period breaks) to minimize match pauses.'
+                    ? 'Minimum interruptions: Substitutions are bunched at key stoppages (e.g. half-time / period breaks) to minimize match pauses.'
                     : `Fixed cadence: Substitutions scheduled every ${fixedInterval} minutes.`}
                 </span>
               </div>
@@ -1402,10 +1208,7 @@ export default function MatchSetupPage({
               {activePreviewTab === 'breakdown' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   {rotationPlan.playerSummaries.map((summary) => {
-                    const isGK = gkPlayerIds.includes(summary.playerId);
                     const playerName = playerMap.get(summary.playerId) || 'Player';
-                    const target = rotationPlan.targetPlayingSecondsPerPlayer;
-                    const diff = summary.totalPlayingSeconds - target;
 
                     return (
                       <div
@@ -1426,8 +1229,8 @@ export default function MatchSetupPage({
                               width: '24px',
                               height: '24px',
                               borderRadius: '50%',
-                              background: isGK ? 'var(--gk-gold)' : 'var(--bg-elevated)',
-                              color: isGK ? '#000' : 'var(--text-secondary)',
+                              background: 'var(--bg-elevated)',
+                              color: 'var(--pitch-green-light)',
                               fontWeight: 700,
                               fontSize: '0.72rem',
                               display: 'flex',
@@ -1436,7 +1239,7 @@ export default function MatchSetupPage({
                               flexShrink: 0
                             }}
                           >
-                            {isGK ? 'GK' : playerName.charAt(0).toUpperCase()}
+                            {playerName.charAt(0).toUpperCase()}
                           </span>
                           <span
                             style={{
@@ -1451,24 +1254,19 @@ export default function MatchSetupPage({
                           </span>
                         </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
-                          {isGK && summary.gkSeconds > 0 && (
-                            <span style={{ fontSize: '0.75rem', color: 'var(--gk-gold)' }}>
-                              🧤 {formatTimeShort(summary.gkSeconds)}
-                            </span>
-                          )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
                           <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                            🏃 {formatTimeShort(summary.outfieldSeconds)}
+                            🪑 {formatTimeShort(summary.benchSeconds)} rest
                           </span>
                           <span
                             style={{
                               fontWeight: 800,
                               color: 'var(--pitch-green-light)',
-                              minWidth: '50px',
+                              minWidth: '55px',
                               textAlign: 'right'
                             }}
                           >
-                            {formatTimeShort(summary.totalPlayingSeconds)}
+                            🏃 {formatTimeShort(summary.totalPlayingSeconds)}
                           </span>
                         </div>
                       </div>

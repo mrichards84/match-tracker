@@ -231,7 +231,7 @@ export default function TeamHubPage({
                     : `Match Ready: vs ${waitingSessionMatch.opposition}`}
                 </div>
                 <div style={{ fontSize: '0.8rem', color: 'rgba(255, 255, 255, 0.85)' }}>
-                  Lineup & rotation plan saved • Ready to review and kick off
+                  Matchday setup saved • Ready to review and kick off
                 </div>
               </div>
             </div>

@@ -11,6 +11,7 @@ import { sound, isSoundEnabled, setSoundEnabled } from '@/utils/audio';
 import { hapticFeedback } from '@/utils/haptics';
 import { wakeLock } from '@/utils/wakeLock';
 import { formatMMSS, formatTimeShort } from '@/utils/formatters';
+import { getMatchTargetPitchSeconds } from '@/utils/targetTime';
 import {
   Play,
   Pause,
@@ -922,8 +923,8 @@ export default function LiveMatchPage({
     }
   };
 
-  // Helper to calculate minutes played so far in this match for a given player
-  const getPlayerLiveMinutes = (playerId: string) => {
+  // Helper to calculate seconds played so far in this match for a given player
+  const getPlayerLiveSeconds = (playerId: string): number => {
     let totalSecs = 0;
     for (const stint of match.stints) {
       if (stint.playerId === playerId) {
@@ -931,8 +932,16 @@ export default function LiveMatchPage({
         totalSecs += Math.max(0, endSec - stint.startSecond);
       }
     }
-    return formatTimeShort(totalSecs);
+    return totalSecs;
   };
+
+  // Helper to format minutes played so far in this match for a given player
+  const getPlayerLiveMinutes = (playerId: string): string => {
+    return formatTimeShort(getPlayerLiveSeconds(playerId));
+  };
+
+  // Calculated target pitch time per player
+  const targetPitchSeconds = getMatchTargetPitchSeconds(match);
 
   // Active pitch lineups
   const activeGK = match.activeGoalkeeperId ? playerMap.get(match.activeGoalkeeperId) : null;
@@ -1014,7 +1023,7 @@ export default function LiveMatchPage({
                   Matchday Setup Saved & Ready
                 </div>
                 <div style={{ fontSize: '0.78rem', color: 'rgba(255, 255, 255, 0.85)', marginTop: '2px' }}>
-                  Review starting lineup, bench, and rotation plan below. When ready, tap <strong>Kick Off</strong> above.
+                  Target pitch time is ~<strong>{formatTimeShort(targetPitchSeconds)}</strong> per player. Review lineup below and tap <strong>Kick Off</strong> when ready.
                 </div>
               </div>
             </div>
@@ -1350,6 +1359,82 @@ export default function LiveMatchPage({
           </div>
         )}
 
+        {/* Target Playing Time Banner */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '10px 14px',
+            background: 'var(--bg-surface)',
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid var(--border-subtle)',
+            marginBottom: '14px',
+            fontSize: '0.82rem',
+            gap: '10px',
+            flexWrap: 'wrap'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+            <Clock size={16} color="var(--pitch-green)" style={{ flexShrink: 0 }} />
+            <div style={{ minWidth: 0 }}>
+              <span style={{ fontWeight: 700, color: '#fff' }}>
+                Target Pitch Time: ~{formatTimeShort(targetPitchSeconds)}
+              </span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: '6px' }}>
+                ({match.matchdaySquadPlayerIds?.length || (benchPlayers.length + activeOutfield.length + (activeGK ? 1 : 0))} squad • {match.playersOnPitch || (activeOutfield.length + (activeGK ? 1 : 0))} pitch)
+              </span>
+            </div>
+          </div>
+
+          {(() => {
+            const overPlayers = [
+              ...(activeGK && getPlayerLiveSeconds(activeGK.id) > targetPitchSeconds ? [activeGK] : []),
+              ...activeOutfield.filter((p) => p && getPlayerLiveSeconds(p.id) > targetPitchSeconds),
+              ...activePowerplay.filter((p) => p && getPlayerLiveSeconds(p.id) > targetPitchSeconds)
+            ];
+            if (overPlayers.length > 0) {
+              return (
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    background: 'rgba(245, 158, 11, 0.15)',
+                    border: '1px solid #f59e0b',
+                    color: '#fbbf24',
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    padding: '3px 8px',
+                    borderRadius: 'var(--radius-full)'
+                  }}
+                >
+                  <AlertTriangle size={12} />
+                  <span>{overPlayers.length} on pitch over target</span>
+                </div>
+              );
+            }
+            return (
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  background: 'rgba(16, 185, 129, 0.12)',
+                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  color: 'var(--pitch-green-light)',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  padding: '3px 8px',
+                  borderRadius: 'var(--radius-full)'
+                }}
+              >
+                <span>✓ On target</span>
+              </div>
+            );
+          })()}
+        </div>
+
         {/* Tactical Controls Bar (Batch Subs, Swap GK, Powerplay, History, Plan) */}
         <div
           style={{
@@ -1425,107 +1510,23 @@ export default function LiveMatchPage({
           </div>
 
           {/* Goalkeeper Card */}
-          {activeGK && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '8px 12px',
-                borderRadius: 'var(--radius-md)',
-                background: 'rgba(245, 158, 11, 0.12)',
-                border: '1.5px solid var(--gk-gold)',
-                marginBottom: '8px'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
-                <div
-                  style={{
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '50%',
-                    background: 'var(--gk-gold)',
-                    color: '#000',
-                    fontWeight: 800,
-                    fontSize: '0.8rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0
-                  }}
-                >
-                  GK
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {activeGK.name}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
-                    <span className="badge badge-gold tabular-nums" style={{ fontSize: '0.7rem', padding: '1px 6px' }}>
-                      <Clock size={10} /> {getPlayerLiveMinutes(activeGK.id)}
-                    </span>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--gk-gold-light)', fontWeight: 600 }}>
-                      Goalkeeper
-                    </span>
-                  </div>
-                </div>
-              </div>
+          {activeGK && (() => {
+            const gkSecs = getPlayerLiveSeconds(activeGK.id);
+            const isGkOver = gkSecs > targetPitchSeconds;
+            const diff = gkSecs - targetPitchSeconds;
 
-              <div className="player-actions-group">
-                {/* 1. Goal Scored */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleScoreHomeGoal(activeGK.id);
-                  }}
-                  className="player-action-btn btn-action-goal"
-                  title={`Record Goal for ${activeGK.name}`}
-                >
-                  <span style={{ fontSize: '0.9rem' }}>⚽</span>
-                </button>
-
-                {/* 2. Rotate GK */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowGKSwapModal(true);
-                  }}
-                  className="player-action-btn btn-action-gk"
-                  title="Rotate Goalkeeper"
-                >
-                  <GoalkeeperIcon size={17} />
-                </button>
-
-                {/* 3. Sub Off */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedPitchPlayerForSub(activeGK.id);
-                    setShowSubModal(true);
-                  }}
-                  className="player-action-btn btn-action-sub"
-                  title={`Substitute ${activeGK.name} off`}
-                >
-                  <ArrowRightLeft size={16} />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Outfield Starters Grid */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {activeOutfield.map((player) => (
+            return (
               <div
-                key={player!.id}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   padding: '8px 12px',
                   borderRadius: 'var(--radius-md)',
-                  background: 'var(--bg-surface)',
-                  border: '1px solid var(--border-subtle)',
-                  transition: 'background 0.15s'
+                  background: isGkOver ? 'rgba(245, 158, 11, 0.18)' : 'rgba(245, 158, 11, 0.12)',
+                  border: isGkOver ? '2px solid #f59e0b' : '1.5px solid var(--gk-gold)',
+                  boxShadow: isGkOver ? '0 0 12px rgba(245, 158, 11, 0.25)' : 'none',
+                  marginBottom: '8px'
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
@@ -1534,25 +1535,44 @@ export default function LiveMatchPage({
                       width: '32px',
                       height: '32px',
                       borderRadius: '50%',
-                      background: 'var(--bg-elevated)',
-                      color: 'var(--pitch-green-light)',
-                      fontWeight: 700,
-                      fontSize: '0.85rem',
+                      background: 'var(--gk-gold)',
+                      color: '#000',
+                      fontWeight: 800,
+                      fontSize: '0.8rem',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       flexShrink: 0
                     }}
                   >
-                    {player!.name.charAt(0).toUpperCase()}
+                    GK
                   </div>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '0.92rem', fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {player!.name}
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {activeGK.name}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
-                      <span className="badge badge-green tabular-nums" style={{ fontSize: '0.7rem', padding: '1px 6px' }}>
-                        <Clock size={10} /> {getPlayerLiveMinutes(player!.id)}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px', flexWrap: 'wrap' }}>
+                      {isGkOver ? (
+                        <span
+                          className="badge tabular-nums"
+                          style={{
+                            fontSize: '0.7rem',
+                            padding: '1px 6px',
+                            background: 'rgba(245, 158, 11, 0.25)',
+                            border: '1px solid #f59e0b',
+                            color: '#fbbf24',
+                            fontWeight: 700
+                          }}
+                        >
+                          <Clock size={10} /> {getPlayerLiveMinutes(activeGK.id)} (+{formatTimeShort(diff)} over)
+                        </span>
+                      ) : (
+                        <span className="badge badge-gold tabular-nums" style={{ fontSize: '0.7rem', padding: '1px 6px' }}>
+                          <Clock size={10} /> {getPlayerLiveMinutes(activeGK.id)}
+                        </span>
+                      )}
+                      <span style={{ fontSize: '0.7rem', color: 'var(--gk-gold-light)', fontWeight: 600 }}>
+                        Goalkeeper
                       </span>
                     </div>
                   </div>
@@ -1563,22 +1583,22 @@ export default function LiveMatchPage({
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleScoreHomeGoal(player!.id);
+                      handleScoreHomeGoal(activeGK.id);
                     }}
                     className="player-action-btn btn-action-goal"
-                    title={`Record Goal for ${player!.name}`}
+                    title={`Record Goal for ${activeGK.name}`}
                   >
                     <span style={{ fontSize: '0.9rem' }}>⚽</span>
                   </button>
 
-                  {/* 2. Swap to GK */}
+                  {/* 2. Rotate GK */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      setConfirmGKSwapPlayerId(player!.id);
+                      setShowGKSwapModal(true);
                     }}
                     className="player-action-btn btn-action-gk"
-                    title={`Swap ${player!.name} to Goalkeeper`}
+                    title="Rotate Goalkeeper"
                   >
                     <GoalkeeperIcon size={17} />
                   </button>
@@ -1587,106 +1607,241 @@ export default function LiveMatchPage({
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      setSelectedPitchPlayerForSub(player!.id);
+                      setSelectedPitchPlayerForSub(activeGK.id);
                       setShowSubModal(true);
                     }}
                     className="player-action-btn btn-action-sub"
-                    title={`Substitute ${player!.name} off`}
+                    title={`Substitute ${activeGK.name} off`}
                   >
                     <ArrowRightLeft size={16} />
                   </button>
                 </div>
               </div>
-            ))}
+            );
+          })()}
+
+          {/* Outfield Starters Grid */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {activeOutfield.map((player) => {
+              const secs = getPlayerLiveSeconds(player!.id);
+              const isOver = secs > targetPitchSeconds;
+              const diff = secs - targetPitchSeconds;
+
+              return (
+                <div
+                  key={player!.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-md)',
+                    background: isOver ? 'rgba(245, 158, 11, 0.08)' : 'var(--bg-surface)',
+                    border: isOver ? '1.5px solid #f59e0b' : '1px solid var(--border-subtle)',
+                    boxShadow: isOver ? '0 0 10px rgba(245, 158, 11, 0.15)' : 'none',
+                    transition: 'all 0.15s'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                    <div
+                      style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '50%',
+                        background: isOver ? 'rgba(245, 158, 11, 0.2)' : 'var(--bg-elevated)',
+                        color: isOver ? '#fbbf24' : 'var(--pitch-green-light)',
+                        border: isOver ? '1px solid #f59e0b' : 'none',
+                        fontWeight: 700,
+                        fontSize: '0.85rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0
+                      }}
+                    >
+                      {player!.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: '0.92rem', fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {player!.name}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px', flexWrap: 'wrap' }}>
+                        {isOver ? (
+                          <span
+                            className="badge tabular-nums"
+                            style={{
+                              fontSize: '0.7rem',
+                              padding: '1px 6px',
+                              background: 'rgba(245, 158, 11, 0.25)',
+                              border: '1px solid #f59e0b',
+                              color: '#fbbf24',
+                              fontWeight: 700
+                            }}
+                          >
+                            <Clock size={10} /> {getPlayerLiveMinutes(player!.id)} (+{formatTimeShort(diff)} over)
+                          </span>
+                        ) : (
+                          <span className="badge badge-green tabular-nums" style={{ fontSize: '0.7rem', padding: '1px 6px' }}>
+                            <Clock size={10} /> {getPlayerLiveMinutes(player!.id)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="player-actions-group">
+                    {/* 1. Goal Scored */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleScoreHomeGoal(player!.id);
+                      }}
+                      className="player-action-btn btn-action-goal"
+                      title={`Record Goal for ${player!.name}`}
+                    >
+                      <span style={{ fontSize: '0.9rem' }}>⚽</span>
+                    </button>
+
+                    {/* 2. Swap to GK */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmGKSwapPlayerId(player!.id);
+                      }}
+                      className="player-action-btn btn-action-gk"
+                      title={`Swap ${player!.name} to Goalkeeper`}
+                    >
+                      <GoalkeeperIcon size={17} />
+                    </button>
+
+                    {/* 3. Sub Off */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedPitchPlayerForSub(player!.id);
+                        setShowSubModal(true);
+                      }}
+                      className="player-action-btn btn-action-sub"
+                      title={`Substitute ${player!.name} off`}
+                    >
+                      <ArrowRightLeft size={16} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
 
             {/* Extra players (e.g. 6-a-side / powerplay) */}
-            {activePowerplay.map((player) => (
-              <div
-                key={player!.id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '8px 12px',
-                  borderRadius: 'var(--radius-md)',
-                  background: 'rgba(168, 85, 247, 0.12)',
-                  border: '1.5px solid var(--powerplay-purple)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
-                  <div
-                    style={{
-                      width: '32px',
-                      height: '32px',
-                      borderRadius: '50%',
-                      background: 'var(--powerplay-purple)',
-                      color: '#fff',
-                      fontWeight: 700,
-                      fontSize: '0.8rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0
-                    }}
-                  >
-                    +1
+            {activePowerplay.map((player) => {
+              const secs = getPlayerLiveSeconds(player!.id);
+              const isOver = secs > targetPitchSeconds;
+              const diff = secs - targetPitchSeconds;
+
+              return (
+                <div
+                  key={player!.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-md)',
+                    background: isOver ? 'rgba(245, 158, 11, 0.12)' : 'rgba(168, 85, 247, 0.12)',
+                    border: isOver ? '1.5px solid #f59e0b' : '1.5px solid var(--powerplay-purple)',
+                    boxShadow: isOver ? '0 0 10px rgba(245, 158, 11, 0.15)' : 'none'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                    <div
+                      style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '50%',
+                        background: isOver ? '#f59e0b' : 'var(--powerplay-purple)',
+                        color: isOver ? '#000' : '#fff',
+                        fontWeight: 700,
+                        fontSize: '0.8rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0
+                      }}
+                    >
+                      +1
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {player!.name}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px', flexWrap: 'wrap' }}>
+                        {isOver ? (
+                          <span
+                            className="badge tabular-nums"
+                            style={{
+                              fontSize: '0.7rem',
+                              padding: '1px 6px',
+                              background: 'rgba(245, 158, 11, 0.25)',
+                              border: '1px solid #f59e0b',
+                              color: '#fbbf24',
+                              fontWeight: 700
+                            }}
+                          >
+                            <Clock size={10} /> {getPlayerLiveMinutes(player!.id)} (+{formatTimeShort(diff)} over)
+                          </span>
+                        ) : (
+                          <span className="badge badge-purple tabular-nums" style={{ fontSize: '0.7rem', padding: '1px 6px' }}>
+                            <Clock size={10} /> {getPlayerLiveMinutes(player!.id)}
+                          </span>
+                        )}
+                        <span style={{ fontSize: '0.7rem', color: 'var(--powerplay-purple)', fontWeight: 600 }}>
+                          Extra Player
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {player!.name}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
-                      <span className="badge badge-purple tabular-nums" style={{ fontSize: '0.7rem', padding: '1px 6px' }}>
-                        <Clock size={10} /> {getPlayerLiveMinutes(player!.id)}
-                      </span>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--powerplay-purple)', fontWeight: 600 }}>
-                        Extra Player
-                      </span>
-                    </div>
+
+                  <div className="player-actions-group">
+                    {/* 1. Goal Scored */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleScoreHomeGoal(player!.id);
+                      }}
+                      className="player-action-btn btn-action-goal"
+                      title={`Record Goal for ${player!.name}`}
+                    >
+                      <span style={{ fontSize: '0.9rem' }}>⚽</span>
+                    </button>
+
+                    {/* 2. Sub Off */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedPitchPlayerForSub(player!.id);
+                        setShowSubModal(true);
+                      }}
+                      className="player-action-btn btn-action-sub"
+                      title={`Substitute ${player!.name} off`}
+                    >
+                      <ArrowRightLeft size={16} />
+                    </button>
+
+                    {/* 3. Take Off */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemovePowerplayPlayer(player!.id);
+                      }}
+                      className="player-action-btn"
+                      style={{ color: 'var(--danger-red)', borderColor: 'rgba(239, 68, 68, 0.4)', background: 'rgba(239, 68, 68, 0.1)' }}
+                      title="Withdraw extra player to bench"
+                    >
+                      <X size={16} />
+                    </button>
                   </div>
                 </div>
-
-                <div className="player-actions-group">
-                  {/* 1. Goal Scored */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleScoreHomeGoal(player!.id);
-                    }}
-                    className="player-action-btn btn-action-goal"
-                    title={`Record Goal for ${player!.name}`}
-                  >
-                    <span style={{ fontSize: '0.9rem' }}>⚽</span>
-                  </button>
-
-                  {/* 2. Sub Off */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedPitchPlayerForSub(player!.id);
-                      setShowSubModal(true);
-                    }}
-                    className="player-action-btn btn-action-sub"
-                    title={`Substitute ${player!.name} off`}
-                  >
-                    <ArrowRightLeft size={16} />
-                  </button>
-
-                  {/* 3. Take Off */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRemovePowerplayPlayer(player!.id);
-                    }}
-                    className="player-action-btn"
-                    style={{ color: 'var(--danger-red)', borderColor: 'rgba(239, 68, 68, 0.4)', background: 'rgba(239, 68, 68, 0.1)' }}
-                    title="Withdraw extra player to bench"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -1703,48 +1858,59 @@ export default function LiveMatchPage({
 
           {benchPlayers.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {benchPlayers.map((player) => (
-                <div
-                  key={player!.id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '8px 12px',
-                    borderRadius: 'var(--radius-md)',
-                    background: 'var(--bg-surface)',
-                    border: '1px solid var(--border-subtle)'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                    <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {player!.name}
-                    </div>
-                    <span className="badge badge-muted tabular-nums" style={{ fontSize: '0.7rem' }}>
-                      {getPlayerLiveMinutes(player!.id)}
-                    </span>
-                  </div>
+              {benchPlayers.map((player) => {
+                const secs = getPlayerLiveSeconds(player!.id);
+                const isOver = secs > targetPitchSeconds;
 
-                  <div className="player-actions-group">
-                    <button
-                      onClick={() => setBenchSubTargetPlayerId(player!.id)}
-                      className="player-action-btn btn-action-sub"
-                      style={{ minWidth: 'auto', padding: '0 10px', fontSize: '0.75rem', gap: '4px' }}
-                      title={`Sub ${player!.name} on`}
-                    >
-                      <ArrowRightLeft size={13} /> Sub In
-                    </button>
-                    <button
-                      onClick={() => handleAddPowerplayPlayer(player!.id, '6-a-side / Extra Player')}
-                      className="player-action-btn btn-action-extra"
-                      style={{ minWidth: 'auto', padding: '0 8px', fontSize: '0.75rem', gap: '2px' }}
-                      title={`Bring ${player!.name} on as Extra Player`}
-                    >
-                      <UserPlus size={13} /> +1
-                    </button>
+                return (
+                  <div
+                    key={player!.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '8px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      background: 'var(--bg-surface)',
+                      border: isOver ? '1px solid rgba(245, 158, 11, 0.5)' : '1px solid var(--border-subtle)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                      <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {player!.name}
+                      </div>
+                      {isOver ? (
+                        <span className="badge tabular-nums" style={{ fontSize: '0.7rem', background: 'rgba(245, 158, 11, 0.2)', border: '1px solid #f59e0b', color: '#fbbf24', fontWeight: 700 }}>
+                          {getPlayerLiveMinutes(player!.id)} (Over)
+                        </span>
+                      ) : (
+                        <span className="badge badge-muted tabular-nums" style={{ fontSize: '0.7rem' }}>
+                          {getPlayerLiveMinutes(player!.id)}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="player-actions-group">
+                      <button
+                        onClick={() => setBenchSubTargetPlayerId(player!.id)}
+                        className="player-action-btn btn-action-sub"
+                        style={{ minWidth: 'auto', padding: '0 10px', fontSize: '0.75rem', gap: '4px' }}
+                        title={`Sub ${player!.name} on`}
+                      >
+                        <ArrowRightLeft size={13} /> Sub In
+                      </button>
+                      <button
+                        onClick={() => handleAddPowerplayPlayer(player!.id, '6-a-side / Extra Player')}
+                        className="player-action-btn btn-action-extra"
+                        style={{ minWidth: 'auto', padding: '0 8px', fontSize: '0.75rem', gap: '2px' }}
+                        title={`Bring ${player!.name} on as Extra Player`}
+                      >
+                        <UserPlus size={13} /> +1
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '12px' }}>
@@ -1913,27 +2079,59 @@ export default function LiveMatchPage({
             </div>
 
             <div>
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                Select Bench Player to bring <strong>ON</strong>:
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  Select Bench Player to bring <strong>ON</strong>:
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--pitch-green-light)', fontWeight: 600 }}>
+                  Lowest playing time first
+                </div>
               </div>
 
               {benchPlayers.length > 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {benchPlayers.map((benchPlayer) => (
-                    <button
-                      key={benchPlayer!.id}
-                      onClick={() => handleExecute1to1Sub(selectedPitchPlayerForSub!, benchPlayer!.id)}
-                      className="btn btn-secondary"
-                      style={{ justifyContent: 'space-between', padding: '12px 16px' }}
-                    >
-                      <span style={{ fontWeight: 700, color: 'var(--pitch-green-light)' }}>
-                        {benchPlayer!.name}
-                      </span>
-                      <span className="badge badge-muted">
-                        {getPlayerLiveMinutes(benchPlayer!.id)} played
-                      </span>
-                    </button>
-                  ))}
+                  {[...benchPlayers]
+                    .sort((a, b) => getPlayerLiveSeconds(a!.id) - getPlayerLiveSeconds(b!.id))
+                    .map((benchPlayer) => {
+                      const secs = getPlayerLiveSeconds(benchPlayer!.id);
+                      const isOver = secs > targetPitchSeconds;
+                      const diff = secs - targetPitchSeconds;
+
+                      return (
+                        <button
+                          key={benchPlayer!.id}
+                          onClick={() => handleExecute1to1Sub(selectedPitchPlayerForSub!, benchPlayer!.id)}
+                          className="btn btn-secondary"
+                          style={{
+                            justifyContent: 'space-between',
+                            padding: '12px 16px',
+                            border: isOver ? '1.5px solid #f59e0b' : undefined,
+                            background: isOver ? 'rgba(245, 158, 11, 0.08)' : undefined
+                          }}
+                        >
+                          <span style={{ fontWeight: 700, color: isOver ? '#fbbf24' : 'var(--pitch-green-light)' }}>
+                            {benchPlayer!.name}
+                          </span>
+                          {isOver ? (
+                            <span
+                              className="badge tabular-nums"
+                              style={{
+                                background: 'rgba(245, 158, 11, 0.25)',
+                                border: '1px solid #f59e0b',
+                                color: '#fbbf24',
+                                fontWeight: 700
+                              }}
+                            >
+                              ⚠️ {getPlayerLiveMinutes(benchPlayer!.id)} (+{formatTimeShort(diff)} over target)
+                            </span>
+                          ) : (
+                            <span className="badge badge-muted tabular-nums">
+                              {getPlayerLiveMinutes(benchPlayer!.id)} played
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
                 </div>
               ) : (
                 <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -2039,64 +2237,72 @@ export default function LiveMatchPage({
               </div>
             </div>
 
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-              Select player to come <strong>OFF</strong>:
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                Select player to come <strong>OFF</strong>:
+              </div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--pitch-green-light)', fontWeight: 600 }}>
+                Lowest playing time first
+              </div>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '55vh', overflowY: 'auto' }}>
-              {activeOutfield.map((pitchPlayer) => (
-                <button
-                  key={pitchPlayer!.id}
-                  onClick={() => {
-                    handleExecute1to1Sub(pitchPlayer!.id, benchSubTargetPlayerId);
-                    setBenchSubTargetPlayerId(null);
-                  }}
-                  className="btn btn-secondary"
-                  style={{ justifyContent: 'space-between', padding: '12px 14px' }}
-                >
-                  <span style={{ fontWeight: 600 }}>{pitchPlayer!.name}</span>
-                  <span className="badge badge-green tabular-nums">
-                    <Clock size={10} /> {getPlayerLiveMinutes(pitchPlayer!.id)}
-                  </span>
-                </button>
-              ))}
+              {[
+                ...(activeGK ? [{ ...activeGK, roleLabel: 'GK', isGK: true }] : []),
+                ...activeOutfield.map((p) => ({ ...p!, roleLabel: 'Outfield', isGK: false })),
+                ...activePowerplay.map((p) => ({ ...p!, roleLabel: 'Extra Player', isGK: false }))
+              ]
+                .sort((a, b) => getPlayerLiveSeconds(a.id) - getPlayerLiveSeconds(b.id))
+                .map((pitchPlayer) => {
+                  const secs = getPlayerLiveSeconds(pitchPlayer.id);
+                  const isOver = secs > targetPitchSeconds;
+                  const diff = secs - targetPitchSeconds;
 
-              {activeGK && (
-                <button
-                  onClick={() => {
-                    handleExecute1to1Sub(activeGK.id, benchSubTargetPlayerId);
-                    setBenchSubTargetPlayerId(null);
-                  }}
-                  className="btn btn-secondary"
-                  style={{ justifyContent: 'space-between', padding: '12px 14px', borderColor: 'var(--gk-gold)' }}
-                >
-                  <span style={{ fontWeight: 600, color: 'var(--gk-gold-light)' }}>
-                    {activeGK.name} (GK)
-                  </span>
-                  <span className="badge badge-gold tabular-nums">
-                    <Clock size={10} /> {getPlayerLiveMinutes(activeGK.id)}
-                  </span>
-                </button>
-              )}
-
-              {activePowerplay.map((pitchPlayer) => (
-                <button
-                  key={pitchPlayer!.id}
-                  onClick={() => {
-                    handleExecute1to1Sub(pitchPlayer!.id, benchSubTargetPlayerId);
-                    setBenchSubTargetPlayerId(null);
-                  }}
-                  className="btn btn-secondary"
-                  style={{ justifyContent: 'space-between', padding: '12px 14px', borderColor: 'var(--powerplay-purple)' }}
-                >
-                  <span style={{ fontWeight: 600, color: 'var(--powerplay-purple)' }}>
-                    {pitchPlayer!.name} (Extra Player)
-                  </span>
-                  <span className="badge badge-purple tabular-nums">
-                    <Clock size={10} /> {getPlayerLiveMinutes(pitchPlayer!.id)}
-                  </span>
-                </button>
-              ))}
+                  return (
+                    <button
+                      key={pitchPlayer.id}
+                      onClick={() => {
+                        handleExecute1to1Sub(pitchPlayer.id, benchSubTargetPlayerId);
+                        setBenchSubTargetPlayerId(null);
+                      }}
+                      className="btn btn-secondary"
+                      style={{
+                        justifyContent: 'space-between',
+                        padding: '12px 14px',
+                        border: isOver ? '1.5px solid #f59e0b' : pitchPlayer.isGK ? '1px solid var(--gk-gold)' : undefined,
+                        background: isOver ? 'rgba(245, 158, 11, 0.08)' : undefined
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontWeight: 600, color: pitchPlayer.isGK ? 'var(--gk-gold-light)' : '#fff' }}>
+                          {pitchPlayer.name}
+                        </span>
+                        {pitchPlayer.roleLabel !== 'Outfield' && (
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                            ({pitchPlayer.roleLabel})
+                          </span>
+                        )}
+                      </div>
+                      {isOver ? (
+                        <span
+                          className="badge tabular-nums"
+                          style={{
+                            background: 'rgba(245, 158, 11, 0.25)',
+                            border: '1px solid #f59e0b',
+                            color: '#fbbf24',
+                            fontWeight: 700
+                          }}
+                        >
+                          ⚠️ {getPlayerLiveMinutes(pitchPlayer.id)} (+{formatTimeShort(diff)} over target)
+                        </span>
+                      ) : (
+                        <span className={`badge ${pitchPlayer.isGK ? 'badge-gold' : 'badge-green'} tabular-nums`}>
+                          <Clock size={10} /> {getPlayerLiveMinutes(pitchPlayer.id)}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
             </div>
           </div>
         </div>
@@ -2159,7 +2365,7 @@ export default function LiveMatchPage({
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' }}>
                 <div>
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Player OFF</label>
+                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Player OFF (lowest time first)</label>
                   <select
                     id="batchOffSelect"
                     className="form-input"
@@ -2167,19 +2373,32 @@ export default function LiveMatchPage({
                     defaultValue=""
                   >
                     <option value="" disabled>Select OFF</option>
-                    {activeOutfield
-                      .filter((p) => !batchPairs.some((bp) => bp.offId === p!.id))
-                      .map((p) => (
-                        <option key={p!.id} value={p!.id}>{p!.name}</option>
-                      ))}
-                    {activeGK && !batchPairs.some((bp) => bp.offId === activeGK.id) && (
-                      <option value={activeGK.id}>{activeGK.name} (GK)</option>
-                    )}
+                    {[
+                      ...(activeGK && !batchPairs.some((bp) => bp.offId === activeGK.id)
+                        ? [{ ...activeGK, label: `${activeGK.name} (GK)` }]
+                        : []),
+                      ...activeOutfield
+                        .filter((p) => p && !batchPairs.some((bp) => bp.offId === p.id))
+                        .map((p) => ({ ...p!, label: p!.name })),
+                      ...activePowerplay
+                        .filter((p) => p && !batchPairs.some((bp) => bp.offId === p.id))
+                        .map((p) => ({ ...p!, label: `${p!.name} (Extra)` }))
+                    ]
+                      .sort((a, b) => getPlayerLiveSeconds(a.id) - getPlayerLiveSeconds(b.id))
+                      .map((p) => {
+                        const secs = getPlayerLiveSeconds(p.id);
+                        const isOver = secs > targetPitchSeconds;
+                        return (
+                          <option key={p.id} value={p.id}>
+                            {p.label} - {getPlayerLiveMinutes(p.id)}{isOver ? ' ⚠️ (Over target)' : ''}
+                          </option>
+                        );
+                      })}
                   </select>
                 </div>
 
                 <div>
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Player ON</label>
+                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Player ON (lowest time first)</label>
                   <select
                     id="batchOnSelect"
                     className="form-input"
@@ -2188,10 +2407,17 @@ export default function LiveMatchPage({
                   >
                     <option value="" disabled>Select ON</option>
                     {benchPlayers
-                      .filter((p) => !batchPairs.some((bp) => bp.onId === p!.id))
-                      .map((p) => (
-                        <option key={p!.id} value={p!.id}>{p!.name}</option>
-                      ))}
+                      .filter((p) => p && !batchPairs.some((bp) => bp.onId === p.id))
+                      .sort((a, b) => getPlayerLiveSeconds(a!.id) - getPlayerLiveSeconds(b!.id))
+                      .map((p) => {
+                        const secs = getPlayerLiveSeconds(p!.id);
+                        const isOver = secs > targetPitchSeconds;
+                        return (
+                          <option key={p!.id} value={p!.id}>
+                            {p!.name} - {getPlayerLiveMinutes(p!.id)}{isOver ? ' ⚠️ (Over target)' : ''}
+                          </option>
+                        );
+                      })}
                   </select>
                 </div>
               </div>
@@ -2261,35 +2487,69 @@ export default function LiveMatchPage({
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>From Outfield (Role Swap):</div>
-              {activeOutfield.map((player) => (
-                <button
-                  key={player!.id}
-                  onClick={() => handleSwapGK(player!.id)}
-                  className="btn btn-secondary"
-                  style={{ justifyContent: 'space-between', padding: '12px 16px' }}
-                >
-                  <span style={{ fontWeight: 700 }}>{player!.name}</span>
-                  <span className="badge badge-gold">Swap with GK</span>
-                </button>
-              ))}
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>From Outfield (Role Swap - lowest time first):</div>
+              {[...activeOutfield]
+                .sort((a, b) => getPlayerLiveSeconds(a!.id) - getPlayerLiveSeconds(b!.id))
+                .map((player) => {
+                  const secs = getPlayerLiveSeconds(player!.id);
+                  const isOver = secs > targetPitchSeconds;
+
+                  return (
+                    <button
+                      key={player!.id}
+                      onClick={() => handleSwapGK(player!.id)}
+                      className="btn btn-secondary"
+                      style={{
+                        justifyContent: 'space-between',
+                        padding: '12px 16px',
+                        border: isOver ? '1.5px solid #f59e0b' : undefined,
+                        background: isOver ? 'rgba(245, 158, 11, 0.08)' : undefined
+                      }}
+                    >
+                      <span style={{ fontWeight: 700, color: isOver ? '#fbbf24' : undefined }}>{player!.name}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span className="badge badge-gold">Swap with GK</span>
+                        <span className="badge badge-muted tabular-nums">
+                          {getPlayerLiveMinutes(player!.id)}{isOver ? ' ⚠️' : ''}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
 
               {benchPlayers.length > 0 && (
                 <>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '8px' }}>
-                    From Bench (Replace GK):
+                    From Bench (Replace GK - lowest time first):
                   </div>
-                  {benchPlayers.map((player) => (
-                    <button
-                      key={player!.id}
-                      onClick={() => handleSwapGK(player!.id)}
-                      className="btn btn-ghost"
-                      style={{ justifyContent: 'space-between', padding: '10px 14px' }}
-                    >
-                      <span>{player!.name}</span>
-                      <span className="badge badge-muted">Bench</span>
-                    </button>
-                  ))}
+                  {[...benchPlayers]
+                    .sort((a, b) => getPlayerLiveSeconds(a!.id) - getPlayerLiveSeconds(b!.id))
+                    .map((player) => {
+                      const secs = getPlayerLiveSeconds(player!.id);
+                      const isOver = secs > targetPitchSeconds;
+
+                      return (
+                        <button
+                          key={player!.id}
+                          onClick={() => handleSwapGK(player!.id)}
+                          className="btn btn-ghost"
+                          style={{
+                            justifyContent: 'space-between',
+                            padding: '10px 14px',
+                            border: isOver ? '1px solid #f59e0b' : undefined,
+                            background: isOver ? 'rgba(245, 158, 11, 0.08)' : undefined
+                          }}
+                        >
+                          <span style={{ color: isOver ? '#fbbf24' : undefined }}>{player!.name}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span className="badge badge-muted">Bench</span>
+                            <span className="badge badge-muted tabular-nums">
+                              {getPlayerLiveMinutes(player!.id)}{isOver ? ' ⚠️' : ''}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
                 </>
               )}
             </div>

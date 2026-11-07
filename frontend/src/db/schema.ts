@@ -100,6 +100,11 @@ export interface Match {
   plannedGkPlayerIds?: string[];
   plannedSubstitutions?: PlannedSubstitution[];
 
+  // Pitch count & calculated playing target
+  playersOnPitch?: number;
+  customPlayersOnPitch?: number;
+  targetPlayerPitchSeconds?: number;
+
   // Starting lineup configuration
   startingGoalkeeperId?: string;
   startingOutfieldPlayerIds: string[];

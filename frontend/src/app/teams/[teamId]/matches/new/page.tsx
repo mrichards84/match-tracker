@@ -7,14 +7,9 @@ import { db, generateUUID } from '@/db';
 import type { MatchFormat, PlayerMatchStint, Match } from '@/db/schema';
 import { Navbar } from '@/components/Navbar';
 import { GoalkeeperIcon } from '@/components/GoalkeeperIcon';
+import { formatTimeShort } from '@/utils/formatters';
+import { getMatchPitchCount, calculateTargetPitchSeconds } from '@/utils/targetTime';
 import {
-  calculateRotationPlan,
-  type MatchSetupConfig,
-  type RotationFrequencySetting
-} from '@/utils/rotationPlanner';
-import { formatMMSS, formatTimeShort } from '@/utils/formatters';
-import {
-  Shield,
   Users,
   Play,
   Clock,
@@ -22,17 +17,11 @@ import {
   AlertCircle,
   Plus,
   Trash2,
-  ArrowUpDown,
   Calendar,
-  ChevronDown,
-  ChevronUp,
   Info,
   Layers,
-  ArrowRight,
   Sparkles,
-  Check,
-  Zap,
-  Sliders
+  Check
 } from 'lucide-react';
 import { hapticFeedback } from '@/utils/haptics';
 
@@ -96,19 +85,6 @@ export default function MatchSetupPage({
   const [format, setFormat] = useState<MatchFormat>('7v7');
   const [customPlayersOnPitch, setCustomPlayersOnPitch] = useState<number>(7);
 
-  // --- Step 4: Substitution Strategy & Frequency ---
-  const [rotationStrategy, setRotationStrategy] = useState<'predictable_lengths' | 'minimum_interruptions' | 'fixed'>('predictable_lengths');
-  const [fixedInterval, setFixedInterval] = useState<string>('5');
-
-  const effectiveRotationFreq: RotationFrequencySetting =
-    rotationStrategy === 'predictable_lengths'
-      ? 'predictable_lengths'
-      : rotationStrategy === 'minimum_interruptions'
-      ? 'minimum_interruptions'
-      : (fixedInterval as RotationFrequencySetting);
-
-  // Preview tab & submission state
-  const [activePreviewTab, setActivePreviewTab] = useState<'breakdown' | 'timeline'>('breakdown');
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -135,18 +111,6 @@ export default function MatchSetupPage({
         }
         if (typeof parsed.customPlayersOnPitch === 'number') {
           setCustomPlayersOnPitch(parsed.customPlayersOnPitch);
-        }
-        if (parsed.rotationFreq) {
-          if (parsed.rotationFreq === 'predictable_lengths') {
-            setRotationStrategy('predictable_lengths');
-          } else if (parsed.rotationFreq === 'minimum_interruptions') {
-            setRotationStrategy('minimum_interruptions');
-          } else if (parsed.rotationFreq === 'auto') {
-            setRotationStrategy('predictable_lengths');
-          } else {
-            setRotationStrategy('fixed');
-            setFixedInterval(parsed.rotationFreq);
-          }
         }
 
         if (restoredAny) {
@@ -184,7 +148,6 @@ export default function MatchSetupPage({
         matchesList,
         format,
         customPlayersOnPitch,
-        rotationFreq: effectiveRotationFreq,
         savedAt: Date.now()
       };
       localStorage.setItem(`matchday_draft_${teamId}`, JSON.stringify(draft));
@@ -200,8 +163,7 @@ export default function MatchSetupPage({
     attendingPlayerIds,
     matchesList,
     format,
-    customPlayersOnPitch,
-    effectiveRotationFreq
+    customPlayersOnPitch
   ]);
 
   // Handle manual draft reset
@@ -227,14 +189,13 @@ export default function MatchSetupPage({
     ]);
     setFormat('7v7');
     setCustomPlayersOnPitch(7);
-    setRotationStrategy('predictable_lengths');
-    setFixedInterval('5');
     setErrorMsg('');
   };
 
-  // Active Preset
+  // Active Preset & Pitch count
   const activePreset = FORMAT_PRESETS.find((p) => p.id === format) || FORMAT_PRESETS[2];
-  const playersOnPitch = format === 'custom' ? customPlayersOnPitch : activePreset.totalOnPitch;
+  const playersOnPitch = getMatchPitchCount(format, customPlayersOnPitch);
+  const squadSize = attendingPlayerIds.length;
 
   // Map for quick player lookups
   const playerMap = useMemo(() => {
@@ -295,26 +256,35 @@ export default function MatchSetupPage({
     );
   };
 
-  // Run Rotation Planner calculation in real-time
-  const rotationPlan = useMemo(() => {
-    if (attendingPlayerIds.length === 0 || matchesList.length === 0) return null;
+  // Calculations for playing time based on squad size and number on pitch
+  const matchDurationMins = (matchesList[0]?.targetPeriods || 2) * (matchesList[0]?.periodDurationMinutes || 20);
+  const matchTotalSeconds = matchDurationMins * 60;
 
-    const plannerMatches: MatchSetupConfig[] = matchesList.map((m, idx) => ({
-      matchIndex: idx + 1,
-      opposition: m.opposition.trim() || `Game ${idx + 1}`,
-      format,
-      targetPeriods: m.targetPeriods,
-      periodDurationMinutes: m.periodDurationMinutes,
-      startingGoalkeeperId: m.startingGoalkeeperId
-    }));
+  const targetPlayingSecondsPerMatch = calculateTargetPitchSeconds({
+    targetPeriods: matchesList[0]?.targetPeriods || 2,
+    periodDurationMinutes: matchesList[0]?.periodDurationMinutes || 20,
+    squadSize,
+    playersOnPitch
+  });
 
-    return calculateRotationPlan({
-      squadPlayerIds: attendingPlayerIds,
-      playersOnPitch,
-      matches: plannerMatches,
-      rotationFrequency: effectiveRotationFreq
-    });
-  }, [attendingPlayerIds, playersOnPitch, matchesList, format, effectiveRotationFreq]);
+  const totalMatchdayMins = matchesList.reduce(
+    (sum, m) => sum + m.targetPeriods * m.periodDurationMinutes,
+    0
+  );
+
+  const totalMatchdaySeconds = totalMatchdayMins * 60;
+  const targetPlayingSecondsTotal =
+    squadSize > 0
+      ? squadSize <= playersOnPitch
+        ? totalMatchdaySeconds
+        : Math.round((playersOnPitch * totalMatchdaySeconds) / squadSize)
+      : 0;
+
+  const benchSecondsPerMatch = Math.max(0, matchTotalSeconds - targetPlayingSecondsPerMatch);
+  const playingPercentage =
+    matchTotalSeconds > 0
+      ? Math.min(100, Math.round((targetPlayingSecondsPerMatch / matchTotalSeconds) * 100))
+      : 0;
 
   // Validation & Submit
   const handleStartMatchday = async (e: React.FormEvent) => {
@@ -331,11 +301,6 @@ export default function MatchSetupPage({
       return;
     }
 
-    if (!rotationPlan || rotationPlan.matches.length === 0) {
-      setErrorMsg('Could not calculate rotation plan. Please check match settings.');
-      return;
-    }
-
     setIsSubmitting(true);
     hapticFeedback.tap();
 
@@ -345,26 +310,47 @@ export default function MatchSetupPage({
       const todayIso = new Date().toISOString().split('T')[0];
 
       // Pre-generate UUIDs for all matches in the group so we can link them
-      const matchIds = rotationPlan.matches.map(() => generateUUID());
+      const matchIds = matchesList.map(() => generateUUID());
 
       // Prepare database match records
-      const dbMatches: Match[] = rotationPlan.matches.map((planMatch, idx) => {
+      const dbMatches: Match[] = matchesList.map((mItem, idx) => {
         const matchId = matchIds[idx];
         const isFirstMatch = idx === 0;
         const nextMatchId = idx < matchIds.length - 1 ? matchIds[idx + 1] : undefined;
         const previousMatchId = idx > 0 ? matchIds[idx - 1] : undefined;
 
-        // Build initial stints for the match
+        // Calculate target seconds specifically for this match
+        const thisMatchTargetSeconds = calculateTargetPitchSeconds({
+          targetPeriods: mItem.targetPeriods,
+          periodDurationMinutes: mItem.periodDurationMinutes,
+          squadSize,
+          playersOnPitch
+        });
+
+        // Determine starting lineup for this match
+        // Designated starting GK or first player in attending squad
+        const startingGkId =
+          mItem.startingGoalkeeperId && attendingPlayerIds.includes(mItem.startingGoalkeeperId)
+            ? mItem.startingGoalkeeperId
+            : attendingPlayerIds[0];
+
+        // Outfield players up to playersOnPitch - 1 (excluding GK)
+        const eligibleOutfield = attendingPlayerIds.filter((id) => id !== startingGkId);
+        const outfieldTargetCount = Math.max(0, playersOnPitch - (startingGkId ? 1 : 0));
+        const startingOutfieldIds = eligibleOutfield.slice(0, outfieldTargetCount);
+        const benchPlayerIds = eligibleOutfield.slice(outfieldTargetCount);
+
+        // Build initial stints for Match 1
         const initialStints: PlayerMatchStint[] = [];
         if (isFirstMatch) {
-          if (planMatch.startingGoalkeeperId) {
+          if (startingGkId) {
             initialStints.push({
-              playerId: planMatch.startingGoalkeeperId,
+              playerId: startingGkId,
               role: 'goalkeeper',
               startSecond: 0
             });
           }
-          planMatch.startingOutfieldPlayerIds.forEach((pId) => {
+          startingOutfieldIds.forEach((pId) => {
             initialStints.push({
               playerId: pId,
               role: 'outfield',
@@ -376,11 +362,11 @@ export default function MatchSetupPage({
         return {
           id: matchId,
           teamId,
-          opposition: matchesList[idx].opposition.trim(),
+          opposition: mItem.opposition.trim(),
           date: todayIso,
-          format: planMatch.format,
-          targetPeriods: planMatch.targetPeriods,
-          periodDurationMinutes: planMatch.periodDurationMinutes,
+          format,
+          targetPeriods: mItem.targetPeriods,
+          periodDurationMinutes: mItem.periodDurationMinutes,
           currentPeriod: 1,
           status: 'setup',
           elapsedSeconds: 0,
@@ -391,23 +377,27 @@ export default function MatchSetupPage({
           // Multi-match linkage
           matchGroupId,
           matchGroupIndex: idx + 1,
-          matchGroupTotal: rotationPlan.matches.length,
+          matchGroupTotal: matchesList.length,
           nextMatchId,
           previousMatchId,
 
-          // Squad & rotation plan
+          // Squad & playing time targets
           matchdaySquadPlayerIds: attendingPlayerIds,
-          plannedGkPlayerIds: planMatch.startingGoalkeeperId ? [planMatch.startingGoalkeeperId] : [],
-          plannedSubstitutions: planMatch.plannedSubstitutions,
+          plannedGkPlayerIds: startingGkId ? [startingGkId] : [],
+          plannedSubstitutions: [], // Substitutions are made flexibly during the match
+
+          playersOnPitch,
+          customPlayersOnPitch: format === 'custom' ? customPlayersOnPitch : undefined,
+          targetPlayerPitchSeconds: thisMatchTargetSeconds,
 
           // Starting lineup
-          startingGoalkeeperId: planMatch.startingGoalkeeperId,
-          startingOutfieldPlayerIds: planMatch.startingOutfieldPlayerIds,
-          benchPlayerIds: planMatch.benchPlayerIds,
+          startingGoalkeeperId: startingGkId,
+          startingOutfieldPlayerIds: startingOutfieldIds,
+          benchPlayerIds,
 
           // Live lineup
-          activeGoalkeeperId: isFirstMatch ? planMatch.startingGoalkeeperId : undefined,
-          activeOutfieldPlayerIds: isFirstMatch ? planMatch.startingOutfieldPlayerIds : [],
+          activeGoalkeeperId: isFirstMatch ? startingGkId : undefined,
+          activeOutfieldPlayerIds: isFirstMatch ? startingOutfieldIds : [],
           activePowerplayPlayerIds: [],
 
           stints: initialStints,
@@ -428,7 +418,7 @@ export default function MatchSetupPage({
         localStorage.removeItem(`matchday_draft_${teamId}`);
       } catch {}
 
-      // Navigate straight to Match 1 live tracking page for pre-match review
+      // Navigate straight to Match 1 live tracking page
       router.push(`/teams/${teamId}/matches/${matchIds[0]}`);
     } catch (err) {
       console.error('Failed to create matchday:', err);
@@ -437,11 +427,6 @@ export default function MatchSetupPage({
       setIsSubmitting(false);
     }
   };
-
-  const totalMatchdayMins = matchesList.reduce(
-    (sum, m) => sum + m.targetPeriods * m.periodDurationMinutes,
-    0
-  );
 
   return (
     <>
@@ -483,10 +468,10 @@ export default function MatchSetupPage({
                 </div>
                 <div>
                   <h1 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, color: '#fff' }}>
-                    Smart Matchday Planner
+                    Matchday Setup
                   </h1>
                   <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
-                    Set up 1 or more games with guaranteed equal playing time & goalkeeper rotation.
+                    Set up opposition, match duration, squad attendance & pitch format.
                   </p>
                 </div>
               </div>
@@ -827,15 +812,15 @@ export default function MatchSetupPage({
             </button>
           </div>
 
-          {/* Section 3: Game Format & Frequency */}
+          {/* Section 3: Game Format & Pitch Count */}
           <div className="card">
             <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
               <Layers size={18} color="var(--powerplay-purple)" />
-              <span>3. Pitch Format & Rotation Pacing</span>
+              <span>3. Pitch Format</span>
             </div>
 
             {/* Match Format Selector */}
-            <div className="form-group" style={{ marginBottom: '12px' }}>
+            <div className="form-group" style={{ marginBottom: format === 'custom' ? '12px' : 0 }}>
               <label className="form-label" style={{ fontSize: '0.82rem' }}>
                 Match Format (Pitch Size)
               </label>
@@ -859,7 +844,7 @@ export default function MatchSetupPage({
 
             {/* Custom pitch players if format is custom */}
             {format === 'custom' && (
-              <div className="form-group" style={{ marginBottom: '12px' }}>
+              <div className="form-group" style={{ margin: 0 }}>
                 <label className="form-label">Players On Pitch (Total including GK)</label>
                 <input
                   type="number"
@@ -871,230 +856,27 @@ export default function MatchSetupPage({
                 />
               </div>
             )}
-
-            {/* Substitution Strategy Options */}
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label" style={{ fontSize: '0.82rem', marginBottom: '8px' }}>
-                Substitution Strategy
-              </label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px', marginBottom: '8px' }}>
-                {/* Option 1: Predictable Lengths */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRotationStrategy('predictable_lengths');
-                    hapticFeedback.tap();
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: '12px',
-                    padding: '12px',
-                    borderRadius: 'var(--radius-md)',
-                    border: `1.5px solid ${rotationStrategy === 'predictable_lengths' ? 'var(--pitch-green)' : 'var(--border-subtle)'}`,
-                    background: rotationStrategy === 'predictable_lengths' ? 'rgba(16, 185, 129, 0.08)' : 'var(--bg-surface)',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <div
-                    style={{
-                      width: '36px',
-                      height: '36px',
-                      borderRadius: 'var(--radius-sm)',
-                      background: rotationStrategy === 'predictable_lengths' ? 'var(--pitch-green)' : 'var(--bg-elevated)',
-                      color: rotationStrategy === 'predictable_lengths' ? '#000' : 'var(--text-secondary)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0
-                    }}
-                  >
-                    <Clock size={20} />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#fff' }}>
-                        Predictable Lengths
-                      </span>
-                      <span
-                        style={{
-                          fontSize: '0.68rem',
-                          fontWeight: 700,
-                          background: 'rgba(16, 185, 129, 0.2)',
-                          color: 'var(--pitch-green-light)',
-                          padding: '2px 6px',
-                          borderRadius: 'var(--radius-full)'
-                        }}
-                      >
-                        Recommended
-                      </span>
-                    </div>
-                    <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.35 }}>
-                      Split substitutions up so they occur regularly and the minimum number of players is changed at each stoppage (1–2 players) for pitch stability.
-                    </p>
-                  </div>
-                </button>
-
-                {/* Option 2: Minimum Interruptions */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRotationStrategy('minimum_interruptions');
-                    hapticFeedback.tap();
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: '12px',
-                    padding: '12px',
-                    borderRadius: 'var(--radius-md)',
-                    border: `1.5px solid ${rotationStrategy === 'minimum_interruptions' ? 'var(--sub-blue)' : 'var(--border-subtle)'}`,
-                    background: rotationStrategy === 'minimum_interruptions' ? 'rgba(59, 130, 246, 0.08)' : 'var(--bg-surface)',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <div
-                    style={{
-                      width: '36px',
-                      height: '36px',
-                      borderRadius: 'var(--radius-sm)',
-                      background: rotationStrategy === 'minimum_interruptions' ? 'var(--sub-blue)' : 'var(--bg-elevated)',
-                      color: rotationStrategy === 'minimum_interruptions' ? '#fff' : 'var(--text-secondary)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0
-                    }}
-                  >
-                    <Zap size={20} />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#fff' }}>
-                      Minimum Interruptions
-                    </span>
-                    <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.35 }}>
-                      Reduce the number of times play is stopped by bunching substitutions together, aligned with goalkeeper changes and period breaks.
-                    </p>
-                  </div>
-                </button>
-
-                {/* Option 3: Fixed Interval */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRotationStrategy('fixed');
-                    hapticFeedback.tap();
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: '12px',
-                    padding: '12px',
-                    borderRadius: 'var(--radius-md)',
-                    border: `1.5px solid ${rotationStrategy === 'fixed' ? 'var(--powerplay-purple)' : 'var(--border-subtle)'}`,
-                    background: rotationStrategy === 'fixed' ? 'rgba(168, 85, 247, 0.08)' : 'var(--bg-surface)',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <div
-                    style={{
-                      width: '36px',
-                      height: '36px',
-                      borderRadius: 'var(--radius-sm)',
-                      background: rotationStrategy === 'fixed' ? 'var(--powerplay-purple)' : 'var(--bg-elevated)',
-                      color: rotationStrategy === 'fixed' ? '#fff' : 'var(--text-secondary)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0
-                    }}
-                  >
-                    <Sliders size={20} />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#fff' }}>
-                      Fixed Interval Cadence
-                    </span>
-                    <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.35 }}>
-                      Rotate at an exact recurring clock interval (e.g. every 5, 6, 7.5, or 10 minutes) regardless of other events.
-                    </p>
-                  </div>
-                </button>
-              </div>
-
-              {/* Fixed Interval Selector (only shown if Fixed Interval is selected) */}
-              {rotationStrategy === 'fixed' && (
-                <div
-                  style={{
-                    marginTop: '8px',
-                    padding: '12px',
-                    background: 'var(--bg-surface)',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--border-subtle)'
-                  }}
-                >
-                  <label className="form-label" style={{ fontSize: '0.8rem', marginBottom: '6px' }}>
-                    Choose Fixed Interval:
-                  </label>
-                  <select
-                    className="form-input"
-                    value={fixedInterval}
-                    onChange={(e) => setFixedInterval(e.target.value)}
-                    style={{ minHeight: '40px', fontSize: '0.85rem' }}
-                  >
-                    <option value="5">Every 5 minutes</option>
-                    <option value="6">Every 6 minutes</option>
-                    <option value="7.5">Every 7.5 minutes</option>
-                    <option value="8">Every 8 minutes</option>
-                    <option value="10">Every 10 minutes</option>
-                    <option value="12">Every 12 minutes</option>
-                    <option value="15">Every 15 minutes</option>
-                    <option value="half_only">At Halves / Periods only</option>
-                  </select>
-                </div>
-              )}
-            </div>
           </div>
 
-          {/* Section 5: Equal Playing Time Preview & Verification */}
-          {rotationPlan && (
+          {/* Section 4: Target Playing Time per Player */}
+          {squadSize > 0 && (
             <div className="card" style={{ border: '1.5px solid var(--border-strong)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
                 <div className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Sparkles size={18} color="var(--pitch-green)" />
-                  <span>4. Equal Playing Time Guarantee</span>
+                  <Clock size={18} color="var(--pitch-green)" />
+                  <span>4. Target Playing Time</span>
                 </div>
                 <span
                   style={{
-                    background:
-                      rotationPlan.maxDisparitySeconds === 0
-                        ? 'rgba(16, 185, 129, 0.15)'
-                        : rotationPlan.isFullyBalanced
-                        ? 'rgba(16, 185, 129, 0.15)'
-                        : 'rgba(59, 130, 246, 0.15)',
-                    color:
-                      rotationPlan.maxDisparitySeconds === 0
-                        ? 'var(--pitch-green-light)'
-                        : rotationPlan.isFullyBalanced
-                        ? 'var(--pitch-green-light)'
-                        : 'var(--sub-blue)',
+                    background: 'rgba(16, 185, 129, 0.15)',
+                    color: 'var(--pitch-green-light)',
                     fontWeight: 700,
                     fontSize: '0.75rem',
                     padding: '3px 8px',
                     borderRadius: 'var(--radius-full)'
                   }}
                 >
-                  {rotationPlan.maxDisparitySeconds === 0
-                    ? '✓ 100% Equal Time'
-                    : rotationPlan.isFullyBalanced
-                    ? '✓ Guaranteed Equal (<2m variance)'
-                    : `Bunched Rotations (±${formatTimeShort(rotationPlan.maxDisparitySeconds)})`}
+                  ~{formatTimeShort(targetPlayingSecondsPerMatch)} / player
                 </span>
               </div>
 
@@ -1115,9 +897,31 @@ export default function MatchSetupPage({
                     textAlign: 'center'
                   }}
                 >
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Target Playing Time</div>
-                  <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--pitch-green-light)' }}>
-                    {formatTimeShort(rotationPlan.targetPlayingSecondsPerPlayer)}
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Target Pitch Time</div>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--pitch-green-light)' }}>
+                    {formatTimeShort(targetPlayingSecondsPerMatch)}
+                  </div>
+                  {matchesList.length > 1 && (
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      ({formatTimeShort(targetPlayingSecondsTotal)} total)
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    background: 'var(--bg-surface)',
+                    padding: '10px 8px',
+                    borderRadius: 'var(--radius-sm)',
+                    textAlign: 'center'
+                  }}
+                >
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Bench Rest Time</div>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-secondary)' }}>
+                    {formatTimeShort(benchSecondsPerMatch)}
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    per game
                   </div>
                 </div>
 
@@ -1129,251 +933,95 @@ export default function MatchSetupPage({
                     textAlign: 'center'
                   }}
                 >
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Bench Time Each</div>
-                  <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-secondary)' }}>
-                    {formatTimeShort(rotationPlan.totalMatchdaySeconds - rotationPlan.targetPlayingSecondsPerPlayer)}
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Pitch Share</div>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#fff' }}>
+                    {playingPercentage}%
                   </div>
-                </div>
-
-                <div
-                  style={{
-                    background: 'var(--bg-surface)',
-                    padding: '10px 8px',
-                    borderRadius: 'var(--radius-sm)',
-                    textAlign: 'center'
-                  }}
-                >
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Max Variance</div>
-                  <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#fff' }}>
-                    ±{formatTimeShort(rotationPlan.maxDisparitySeconds)}
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    of match
                   </div>
                 </div>
               </div>
 
-              {/* Strategy Details Banner */}
+              {/* Explanatory Banner */}
               <div
                 style={{
-                  fontSize: '0.78rem',
+                  fontSize: '0.8rem',
                   color: 'var(--text-secondary)',
                   background: 'var(--bg-surface)',
-                  padding: '8px 10px',
+                  padding: '10px 12px',
                   borderRadius: 'var(--radius-sm)',
                   marginBottom: '12px',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
-                  border: '1px solid var(--border-subtle)'
+                  border: '1px solid var(--border-subtle)',
+                  lineHeight: 1.4
                 }}
               >
-                <Info size={15} color="var(--sub-blue)" style={{ flexShrink: 0 }} />
+                <Info size={16} color="var(--sub-blue)" style={{ flexShrink: 0 }} />
                 <span>
-                  {rotationStrategy === 'predictable_lengths'
-                    ? 'Predictable shifts: Rotations occur regularly with 1–2 players swapped per stoppage for pitch stability and equal playing time.'
-                    : rotationStrategy === 'minimum_interruptions'
-                    ? 'Minimum interruptions: Substitutions are bunched at key stoppages (e.g. half-time / period breaks) to minimize match pauses.'
-                    : `Fixed cadence: Substitutions scheduled every ${fixedInterval} minutes.`}
+                  {squadSize <= playersOnPitch ? (
+                    <>
+                      With a squad of <strong>{squadSize}</strong> and <strong>{playersOnPitch}</strong> on the pitch, every player can play the full <strong>{matchDurationMins} minutes</strong>.
+                    </>
+                  ) : (
+                    <>
+                      With <strong>{squadSize} players</strong> and <strong>{playersOnPitch} on the pitch</strong> for a <strong>{matchDurationMins}m</strong> match, each player should roughly play <strong>{formatTimeShort(targetPlayingSecondsPerMatch)}</strong>. During the game, you can monitor each player&apos;s live time and see who exceeds this target.
+                    </>
+                  )}
                 </span>
               </div>
 
-              {/* Tabs for Breakdown vs Timeline */}
+              {/* Squad Attendance Overview */}
+              <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                Attending Squad ({attendingPlayerIds.length}):
+              </div>
               <div
                 style={{
-                  display: 'flex',
-                  gap: '6px',
-                  background: 'var(--bg-surface)',
-                  padding: '4px',
-                  borderRadius: 'var(--radius-md)',
-                  marginBottom: '12px'
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
+                  gap: '6px'
                 }}
               >
-                <button
-                  type="button"
-                  onClick={() => setActivePreviewTab('breakdown')}
-                  className={`btn ${activePreviewTab === 'breakdown' ? 'btn-primary' : 'btn-ghost'}`}
-                  style={{ flex: 1, minHeight: '34px', fontSize: '0.8rem', padding: '4px' }}
-                >
-                  Squad Minutes Breakdown
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActivePreviewTab('timeline')}
-                  className={`btn ${activePreviewTab === 'timeline' ? 'btn-primary' : 'btn-ghost'}`}
-                  style={{ flex: 1, minHeight: '34px', fontSize: '0.8rem', padding: '4px' }}
-                >
-                  Rotation Timeline Schedule
-                </button>
-              </div>
-
-              {/* Tab 1: Squad Minutes Breakdown Table */}
-              {activePreviewTab === 'breakdown' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {rotationPlan.playerSummaries.map((summary) => {
-                    const playerName = playerMap.get(summary.playerId) || 'Player';
-
-                    return (
-                      <div
-                        key={summary.playerId}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: '8px 10px',
-                          background: 'var(--bg-surface)',
-                          borderRadius: 'var(--radius-sm)',
-                          fontSize: '0.82rem'
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
-                          <span
-                            style={{
-                              width: '24px',
-                              height: '24px',
-                              borderRadius: '50%',
-                              background: 'var(--bg-elevated)',
-                              color: 'var(--pitch-green-light)',
-                              fontWeight: 700,
-                              fontSize: '0.72rem',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              flexShrink: 0
-                            }}
-                          >
-                            {playerName.charAt(0).toUpperCase()}
-                          </span>
-                          <span
-                            style={{
-                              fontWeight: 600,
-                              color: '#fff',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap'
-                            }}
-                          >
-                            {playerName}
-                          </span>
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                            🪑 {formatTimeShort(summary.benchSeconds)} rest
-                          </span>
-                          <span
-                            style={{
-                              fontWeight: 800,
-                              color: 'var(--pitch-green-light)',
-                              minWidth: '55px',
-                              textAlign: 'right'
-                            }}
-                          >
-                            🏃 {formatTimeShort(summary.totalPlayingSeconds)}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Tab 2: Timeline Schedule */}
-              {activePreviewTab === 'timeline' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {rotationPlan.matches.map((planMatch, mIdx) => (
-                    <div
-                      key={mIdx}
+                {attendingPlayerIds.map((pId) => (
+                  <div
+                    key={pId}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '6px 8px',
+                      background: 'var(--bg-surface)',
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: '0.78rem',
+                      color: 'var(--text-primary)',
+                      overflow: 'hidden'
+                    }}
+                  >
+                    <span
                       style={{
-                        background: 'var(--bg-surface)',
-                        borderRadius: 'var(--radius-md)',
-                        padding: '10px 12px'
+                        width: '18px',
+                        height: '18px',
+                        borderRadius: '50%',
+                        background: 'var(--bg-elevated)',
+                        color: 'var(--pitch-green-light)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '0.68rem',
+                        fontWeight: 700,
+                        flexShrink: 0
                       }}
                     >
-                      <div
-                        style={{
-                          fontWeight: 700,
-                          fontSize: '0.85rem',
-                          color: 'var(--sub-blue)',
-                          marginBottom: '8px'
-                        }}
-                      >
-                        Match {mIdx + 1}: vs {matchesList[mIdx]?.opposition || `Game ${mIdx + 1}`}
-                      </div>
-
-                      {/* Starting Lineup for this match */}
-                      <div
-                        style={{
-                          fontSize: '0.78rem',
-                          padding: '6px 8px',
-                          background: 'var(--bg-card)',
-                          borderRadius: 'var(--radius-sm)',
-                          marginBottom: '8px'
-                        }}
-                      >
-                        <div style={{ fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
-                          00:00 Kick-off Starting Lineup:
-                        </div>
-                        <div style={{ color: 'var(--gk-gold)' }}>
-                          🧤 GK: <strong>{playerMap.get(planMatch.startingGoalkeeperId || '')}</strong>
-                        </div>
-                        <div style={{ color: 'var(--pitch-green-light)', marginTop: '2px' }}>
-                          🏃 Pitch: {planMatch.startingOutfieldPlayerIds.map((id) => playerMap.get(id)).join(', ')}
-                        </div>
-                        {planMatch.benchPlayerIds.length > 0 && (
-                          <div style={{ color: 'var(--text-muted)', marginTop: '2px' }}>
-                            🪑 Bench: {planMatch.benchPlayerIds.map((id) => playerMap.get(id)).join(', ')}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Scheduled Substitutions */}
-                      {planMatch.plannedSubstitutions.length > 0 ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                          {planMatch.plannedSubstitutions.map((sub, sIdx) => (
-                            <div
-                              key={sub.id}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'flex-start',
-                                gap: '8px',
-                                fontSize: '0.76rem',
-                                padding: '6px 8px',
-                                background: 'var(--bg-elevated)',
-                                borderRadius: 'var(--radius-sm)'
-                              }}
-                            >
-                              <span
-                                style={{
-                                  fontWeight: 800,
-                                  color: 'var(--pitch-green)',
-                                  flexShrink: 0,
-                                  marginTop: '1px'
-                                }}
-                              >
-                                {sub.label}
-                              </span>
-                              <div style={{ flex: 1 }}>
-                                {sub.gkChange && (
-                                  <div style={{ color: 'var(--gk-gold)', fontWeight: 600 }}>
-                                    🧤 GK Swap: {playerMap.get(sub.gkChange.inPlayerId)} in for {playerMap.get(sub.gkChange.outPlayerId || '')}
-                                  </div>
-                                )}
-                                {sub.outfieldChanges.map((chg, cIdx) => (
-                                  <div key={cIdx} style={{ color: 'var(--text-primary)' }}>
-                                    🔄 {playerMap.get(chg.inPlayerId)} ON ↔️ {playerMap.get(chg.outPlayerId)} OFF
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          No mid-game substitutions (squad matches pitch count).
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+                      {playerMap.get(pId)?.charAt(0).toUpperCase()}
+                    </span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {playerMap.get(pId) || 'Player'}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -1398,7 +1046,7 @@ export default function MatchSetupPage({
             </div>
           )}
 
-          {/* Big Start Matchday Button */}
+          {/* Confirm & Start Match Button */}
           <button
             type="submit"
             disabled={isSubmitting || attendingPlayerIds.length === 0}
@@ -1411,7 +1059,7 @@ export default function MatchSetupPage({
             }}
           >
             <Play size={22} fill="#000" />
-            Confirm & Review Matchday ({matchesList.length === 1 ? 'Game 1' : `${matchesList.length} Games`})
+            Confirm Matchday ({matchesList.length === 1 ? 'Game 1' : `${matchesList.length} Games`})
           </button>
         </form>
       </main>

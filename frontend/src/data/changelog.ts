@@ -12,14 +12,37 @@ export interface ChangelogRelease {
   highlights: ChangelogHighlight[];
 }
 
-export const CURRENT_APP_VERSION = '0.4.3';
+export const CURRENT_APP_VERSION = '0.4.4';
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '0.4.4',
+    title: 'Target Playing Time & Smart Substitution Sorting',
+    date: 'November 2026',
+    isLatest: true,
+    highlights: [
+      {
+        icon: 'clock',
+        title: 'Target Playing Time Guidance',
+        description: 'Replaced suggested substitutions with calculated target pitch time per player based on squad size, pitch format, and match duration.'
+      },
+      {
+        icon: 'zap',
+        title: 'Live Over-Target Highlighting',
+        description: 'Real-time pitch status and badges highlight players who exceed the calculated target pitch time during the match.'
+      },
+      {
+        icon: 'refresh',
+        title: 'Smart Substitution Sorting',
+        description: 'Sub modals sort players from lowest to highest playing time and highlight players who have exceeded target pitch time.'
+      }
+    ]
+  },
   {
     version: '0.4.3',
     title: 'Pure Pitch Substitutions & Streamlined Setup',
     date: 'October 2026',
-    isLatest: true,
+    isLatest: false,
     highlights: [
       {
         icon: 'refresh',

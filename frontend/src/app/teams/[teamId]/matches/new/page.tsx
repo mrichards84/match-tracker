@@ -858,7 +858,7 @@ export default function MatchSetupPage({
             )}
           </div>
 
-          {/* Section 4: Target Playing Time per Player */}
+          {/* Section 4: Target Playing Time per Player across the Matchday */}
           {squadSize > 0 && (
             <div className="card" style={{ border: '1.5px solid var(--border-strong)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
@@ -876,7 +876,9 @@ export default function MatchSetupPage({
                     borderRadius: 'var(--radius-full)'
                   }}
                 >
-                  ~{formatTimeShort(targetPlayingSecondsPerMatch)} / player
+                  {matchesList.length > 1
+                    ? `~${formatTimeShort(targetPlayingSecondsTotal)} total across ${matchesList.length} games`
+                    : `~${formatTimeShort(targetPlayingSecondsPerMatch)} / player`}
                 </span>
               </div>
 
@@ -897,13 +899,15 @@ export default function MatchSetupPage({
                     textAlign: 'center'
                   }}
                 >
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Target Pitch Time</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    {matchesList.length > 1 ? 'Day Target Pitch Time' : 'Target Pitch Time'}
+                  </div>
                   <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--pitch-green-light)' }}>
-                    {formatTimeShort(targetPlayingSecondsPerMatch)}
+                    {formatTimeShort(matchesList.length > 1 ? targetPlayingSecondsTotal : targetPlayingSecondsPerMatch)}
                   </div>
                   {matchesList.length > 1 && (
                     <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                      ({formatTimeShort(targetPlayingSecondsTotal)} total)
+                      (~{formatTimeShort(targetPlayingSecondsPerMatch)} / game)
                     </div>
                   )}
                 </div>
@@ -916,12 +920,14 @@ export default function MatchSetupPage({
                     textAlign: 'center'
                   }}
                 >
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Bench Rest Time</div>
-                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-secondary)' }}>
-                    {formatTimeShort(benchSecondsPerMatch)}
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    {matchesList.length > 1 ? 'Total Day Match Time' : 'Total Match Time'}
+                  </div>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--sub-blue)' }}>
+                    {totalMatchdayMins}m
                   </div>
                   <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    per game
+                    {matchesList.length > 1 ? `${matchesList.length} games total` : '1 game'}
                   </div>
                 </div>
 
@@ -933,12 +939,16 @@ export default function MatchSetupPage({
                     textAlign: 'center'
                   }}
                 >
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Pitch Share</div>
-                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#fff' }}>
-                    {playingPercentage}%
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Bench Rest Time</div>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-secondary)' }}>
+                    {formatTimeShort(
+                      matchesList.length > 1
+                        ? totalMatchdaySeconds - targetPlayingSecondsTotal
+                        : benchSecondsPerMatch
+                    )}
                   </div>
                   <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    of match
+                    {matchesList.length > 1 ? 'across day' : 'per game'}
                   </div>
                 </div>
               </div>
@@ -961,7 +971,11 @@ export default function MatchSetupPage({
               >
                 <Info size={16} color="var(--sub-blue)" style={{ flexShrink: 0 }} />
                 <span>
-                  {squadSize <= playersOnPitch ? (
+                  {matchesList.length > 1 ? (
+                    <>
+                      Across <strong>{matchesList.length} matches ({totalMatchdayMins} mins total)</strong> with a <strong>{squadSize}-player squad</strong> and <strong>{playersOnPitch} on the pitch</strong>, each player should roughly play <strong>{formatTimeShort(targetPlayingSecondsTotal)}</strong> across the day (~{formatTimeShort(targetPlayingSecondsPerMatch)} per game). During the matches, live playing time counters will track cumulative time across the whole day so you can balance pitch time across all games.
+                    </>
+                  ) : squadSize <= playersOnPitch ? (
                     <>
                       With a squad of <strong>{squadSize}</strong> and <strong>{playersOnPitch}</strong> on the pitch, every player can play the full <strong>{matchDurationMins} minutes</strong>.
                     </>

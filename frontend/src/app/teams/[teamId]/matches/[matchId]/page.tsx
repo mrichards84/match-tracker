@@ -11,7 +11,12 @@ import { sound, isSoundEnabled, setSoundEnabled } from '@/utils/audio';
 import { hapticFeedback } from '@/utils/haptics';
 import { wakeLock } from '@/utils/wakeLock';
 import { formatMMSS, formatTimeShort } from '@/utils/formatters';
-import { getMatchTargetPitchSeconds } from '@/utils/targetTime';
+import {
+  calculateDayPitchStats,
+  getPlayerDaySeconds,
+  getPlayerSecondsInMatch,
+  getMatchPitchCount
+} from '@/utils/targetTime';
 import {
   Play,
   Pause,
@@ -58,6 +63,26 @@ export default function LiveMatchPage({
   const nextMatch = useLiveQuery(
     () => (match?.nextMatchId ? db.matches.get(match.nextMatchId) : undefined),
     [match?.nextMatchId]
+  );
+  const allDayMatches = useLiveQuery(
+    async () => {
+      if (!match) return [];
+      if (match.matchGroupId) {
+        return db.matches
+          .where('matchGroupId')
+          .equals(match.matchGroupId)
+          .sortBy('matchGroupIndex');
+      }
+      if (match.date) {
+        return db.matches
+          .where('teamId')
+          .equals(teamId)
+          .filter((m) => m.date === match.date)
+          .toArray();
+      }
+      return [match];
+    },
+    [match?.matchGroupId, match?.date, teamId, matchId]
   );
 
   // Local tick counter to trigger re-renders every 1s while running
@@ -923,25 +948,43 @@ export default function LiveMatchPage({
     }
   };
 
-  // Helper to calculate seconds played so far in this match for a given player
-  const getPlayerLiveSeconds = (playerId: string): number => {
-    let totalSecs = 0;
-    for (const stint of match.stints) {
-      if (stint.playerId === playerId) {
-        const endSec = stint.endSecond ?? currentSeconds;
-        totalSecs += Math.max(0, endSec - stint.startSecond);
-      }
-    }
-    return totalSecs;
+  // All matches for this day (or current match if only 1 match)
+  const effectiveDayMatches =
+    allDayMatches && allDayMatches.length > 0 ? allDayMatches : match ? [match] : [];
+  const isMultiMatchDay =
+    effectiveDayMatches.length > 1 || (match?.matchGroupTotal ?? 0) > 1;
+
+  // Day-wide squad count and pitch stats
+  const squadSize =
+    match.matchdaySquadPlayerIds?.length ||
+    (players?.filter((p) => p.isActive).length ?? 0) ||
+    (match.startingOutfieldPlayerIds.length +
+      (match.startingGoalkeeperId ? 1 : 0) +
+      match.benchPlayerIds.length);
+
+  const dayPitchStats = calculateDayPitchStats({
+    matches: effectiveDayMatches,
+    squadSize
+  });
+
+  const totalDayMatchSeconds = dayPitchStats.totalDayMatchSeconds;
+  const totalDayMatchMins = Math.round(totalDayMatchSeconds / 60);
+  const targetDayPitchSeconds = dayPitchStats.targetDayPitchSeconds;
+
+  // Helper to calculate seconds played in the CURRENT match
+  const getPlayerMatchSeconds = (playerId: string): number => {
+    return getPlayerSecondsInMatch(match, playerId, currentSeconds);
   };
 
-  // Helper to format minutes played so far in this match for a given player
+  // Helper to calculate total cumulative seconds played across ALL matches on this day
+  const getPlayerDayTotalSeconds = (playerId: string): number => {
+    return getPlayerDaySeconds(effectiveDayMatches, matchId, playerId, currentSeconds);
+  };
+
+  // Helper to format minutes played so far across the day for a given player
   const getPlayerLiveMinutes = (playerId: string): string => {
-    return formatTimeShort(getPlayerLiveSeconds(playerId));
+    return formatTimeShort(getPlayerDayTotalSeconds(playerId));
   };
-
-  // Calculated target pitch time per player
-  const targetPitchSeconds = getMatchTargetPitchSeconds(match);
 
   // Active pitch lineups
   const activeGK = match.activeGoalkeeperId ? playerMap.get(match.activeGoalkeeperId) : null;
@@ -1023,7 +1066,15 @@ export default function LiveMatchPage({
                   Matchday Setup Saved & Ready
                 </div>
                 <div style={{ fontSize: '0.78rem', color: 'rgba(255, 255, 255, 0.85)', marginTop: '2px' }}>
-                  Target pitch time is ~<strong>{formatTimeShort(targetPitchSeconds)}</strong> per player. Review lineup below and tap <strong>Kick Off</strong> when ready.
+                  {isMultiMatchDay ? (
+                    <>
+                      Day target pitch time is ~<strong>{formatTimeShort(targetDayPitchSeconds)}</strong> per player across all {effectiveDayMatches.length} games ({totalDayMatchMins}m total match time). Review lineup below and tap <strong>Kick Off</strong> when ready.
+                    </>
+                  ) : (
+                    <>
+                      Target pitch time is ~<strong>{formatTimeShort(targetDayPitchSeconds)}</strong> per player ({totalDayMatchMins}m match). Review lineup below and tap <strong>Kick Off</strong> when ready.
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -1359,13 +1410,13 @@ export default function LiveMatchPage({
           </div>
         )}
 
-        {/* Target Playing Time Banner */}
+        {/* Target Playing Time Banner (Day-wide balancing) */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '10px 14px',
+            padding: '12px 14px',
             background: 'var(--bg-surface)',
             borderRadius: 'var(--radius-md)',
             border: '1px solid var(--border-subtle)',
@@ -1378,20 +1429,40 @@ export default function LiveMatchPage({
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
             <Clock size={16} color="var(--pitch-green)" style={{ flexShrink: 0 }} />
             <div style={{ minWidth: 0 }}>
-              <span style={{ fontWeight: 700, color: '#fff' }}>
-                Target Pitch Time: ~{formatTimeShort(targetPitchSeconds)}
-              </span>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: '6px' }}>
-                ({match.matchdaySquadPlayerIds?.length || (benchPlayers.length + activeOutfield.length + (activeGK ? 1 : 0))} squad • {match.playersOnPitch || (activeOutfield.length + (activeGK ? 1 : 0))} pitch)
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 800, color: '#fff', fontSize: '0.88rem' }}>
+                  {isMultiMatchDay
+                    ? `Day Target Pitch Time: ~${formatTimeShort(targetDayPitchSeconds)}`
+                    : `Target Pitch Time: ~${formatTimeShort(targetDayPitchSeconds)}`}
+                </span>
+                {isMultiMatchDay && (
+                  <span
+                    style={{
+                      background: 'rgba(14, 165, 233, 0.18)',
+                      border: '1px solid var(--sub-blue)',
+                      color: '#38bdf8',
+                      fontSize: '0.7rem',
+                      fontWeight: 700,
+                      padding: '1px 6px',
+                      borderRadius: 'var(--radius-sm)'
+                    }}
+                  >
+                    {effectiveDayMatches.length} Games Total
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                Total Match Time: <strong>{totalDayMatchMins} mins</strong>{isMultiMatchDay ? ` (${effectiveDayMatches.length} games)` : ''} • {squadSize} squad • {match.playersOnPitch || (activeOutfield.length + (activeGK ? 1 : 0))} on pitch
+                {isMultiMatchDay && match.matchGroupIndex && ` • Game ${match.matchGroupIndex} of ${match.matchGroupTotal || effectiveDayMatches.length}`}
+              </div>
             </div>
           </div>
 
           {(() => {
             const overPlayers = [
-              ...(activeGK && getPlayerLiveSeconds(activeGK.id) > targetPitchSeconds ? [activeGK] : []),
-              ...activeOutfield.filter((p) => p && getPlayerLiveSeconds(p.id) > targetPitchSeconds),
-              ...activePowerplay.filter((p) => p && getPlayerLiveSeconds(p.id) > targetPitchSeconds)
+              ...(activeGK && getPlayerDayTotalSeconds(activeGK.id) > targetDayPitchSeconds ? [activeGK] : []),
+              ...activeOutfield.filter((p) => p && getPlayerDayTotalSeconds(p.id) > targetDayPitchSeconds),
+              ...activePowerplay.filter((p) => p && getPlayerDayTotalSeconds(p.id) > targetDayPitchSeconds)
             ];
             if (overPlayers.length > 0) {
               return (
@@ -1405,12 +1476,12 @@ export default function LiveMatchPage({
                     color: '#fbbf24',
                     fontSize: '0.72rem',
                     fontWeight: 700,
-                    padding: '3px 8px',
+                    padding: '4px 10px',
                     borderRadius: 'var(--radius-full)'
                   }}
                 >
-                  <AlertTriangle size={12} />
-                  <span>{overPlayers.length} on pitch over target</span>
+                  <AlertTriangle size={13} />
+                  <span>{overPlayers.length} on pitch over {isMultiMatchDay ? 'day ' : ''}target</span>
                 </div>
               );
             }
@@ -1425,11 +1496,11 @@ export default function LiveMatchPage({
                   color: 'var(--pitch-green-light)',
                   fontSize: '0.72rem',
                   fontWeight: 700,
-                  padding: '3px 8px',
+                  padding: '4px 10px',
                   borderRadius: 'var(--radius-full)'
                 }}
               >
-                <span>✓ On target</span>
+                <span>✓ {isMultiMatchDay ? 'Balanced for day' : 'On target'}</span>
               </div>
             );
           })()}
@@ -1511,9 +1582,10 @@ export default function LiveMatchPage({
 
           {/* Goalkeeper Card */}
           {activeGK && (() => {
-            const gkSecs = getPlayerLiveSeconds(activeGK.id);
-            const isGkOver = gkSecs > targetPitchSeconds;
-            const diff = gkSecs - targetPitchSeconds;
+            const daySecs = getPlayerDayTotalSeconds(activeGK.id);
+            const matchSecs = getPlayerMatchSeconds(activeGK.id);
+            const isGkOver = daySecs > targetDayPitchSeconds;
+            const diff = daySecs - targetDayPitchSeconds;
 
             return (
               <div
@@ -1564,11 +1636,11 @@ export default function LiveMatchPage({
                             fontWeight: 700
                           }}
                         >
-                          <Clock size={10} /> {getPlayerLiveMinutes(activeGK.id)} (+{formatTimeShort(diff)} over)
+                          <Clock size={10} /> {formatTimeShort(daySecs)}{isMultiMatchDay ? ' today' : ''} (+{formatTimeShort(diff)} over{isMultiMatchDay ? ' day target' : ''})
                         </span>
                       ) : (
                         <span className="badge badge-gold tabular-nums" style={{ fontSize: '0.7rem', padding: '1px 6px' }}>
-                          <Clock size={10} /> {getPlayerLiveMinutes(activeGK.id)}
+                          <Clock size={10} /> {formatTimeShort(daySecs)}{isMultiMatchDay ? ` today (${formatTimeShort(matchSecs)} this game)` : ''}
                         </span>
                       )}
                       <span style={{ fontSize: '0.7rem', color: 'var(--gk-gold-light)', fontWeight: 600 }}>
@@ -1623,9 +1695,10 @@ export default function LiveMatchPage({
           {/* Outfield Starters Grid */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             {activeOutfield.map((player) => {
-              const secs = getPlayerLiveSeconds(player!.id);
-              const isOver = secs > targetPitchSeconds;
-              const diff = secs - targetPitchSeconds;
+              const daySecs = getPlayerDayTotalSeconds(player!.id);
+              const matchSecs = getPlayerMatchSeconds(player!.id);
+              const isOver = daySecs > targetDayPitchSeconds;
+              const diff = daySecs - targetDayPitchSeconds;
 
               return (
                 <div
@@ -1678,11 +1751,11 @@ export default function LiveMatchPage({
                               fontWeight: 700
                             }}
                           >
-                            <Clock size={10} /> {getPlayerLiveMinutes(player!.id)} (+{formatTimeShort(diff)} over)
+                            <Clock size={10} /> {formatTimeShort(daySecs)}{isMultiMatchDay ? ' today' : ''} (+{formatTimeShort(diff)} over{isMultiMatchDay ? ' day target' : ''})
                           </span>
                         ) : (
                           <span className="badge badge-green tabular-nums" style={{ fontSize: '0.7rem', padding: '1px 6px' }}>
-                            <Clock size={10} /> {getPlayerLiveMinutes(player!.id)}
+                            <Clock size={10} /> {formatTimeShort(daySecs)}{isMultiMatchDay ? ` today (${formatTimeShort(matchSecs)} this game)` : ''}
                           </span>
                         )}
                       </div>
@@ -1733,9 +1806,10 @@ export default function LiveMatchPage({
 
             {/* Extra players (e.g. 6-a-side / powerplay) */}
             {activePowerplay.map((player) => {
-              const secs = getPlayerLiveSeconds(player!.id);
-              const isOver = secs > targetPitchSeconds;
-              const diff = secs - targetPitchSeconds;
+              const daySecs = getPlayerDayTotalSeconds(player!.id);
+              const matchSecs = getPlayerMatchSeconds(player!.id);
+              const isOver = daySecs > targetDayPitchSeconds;
+              const diff = daySecs - targetDayPitchSeconds;
 
               return (
                 <div
@@ -1786,11 +1860,11 @@ export default function LiveMatchPage({
                               fontWeight: 700
                             }}
                           >
-                            <Clock size={10} /> {getPlayerLiveMinutes(player!.id)} (+{formatTimeShort(diff)} over)
+                            <Clock size={10} /> {formatTimeShort(daySecs)}{isMultiMatchDay ? ' today' : ''} (+{formatTimeShort(diff)} over{isMultiMatchDay ? ' day target' : ''})
                           </span>
                         ) : (
                           <span className="badge badge-purple tabular-nums" style={{ fontSize: '0.7rem', padding: '1px 6px' }}>
-                            <Clock size={10} /> {getPlayerLiveMinutes(player!.id)}
+                            <Clock size={10} /> {formatTimeShort(daySecs)}{isMultiMatchDay ? ` today (${formatTimeShort(matchSecs)} this game)` : ''}
                           </span>
                         )}
                         <span style={{ fontSize: '0.7rem', color: 'var(--powerplay-purple)', fontWeight: 600 }}>
@@ -1859,8 +1933,8 @@ export default function LiveMatchPage({
           {benchPlayers.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {benchPlayers.map((player) => {
-                const secs = getPlayerLiveSeconds(player!.id);
-                const isOver = secs > targetPitchSeconds;
+                const daySecs = getPlayerDayTotalSeconds(player!.id);
+                const isOver = daySecs > targetDayPitchSeconds;
 
                 return (
                   <div
@@ -1881,11 +1955,11 @@ export default function LiveMatchPage({
                       </div>
                       {isOver ? (
                         <span className="badge tabular-nums" style={{ fontSize: '0.7rem', background: 'rgba(245, 158, 11, 0.2)', border: '1px solid #f59e0b', color: '#fbbf24', fontWeight: 700 }}>
-                          {getPlayerLiveMinutes(player!.id)} (Over)
+                          {formatTimeShort(daySecs)}{isMultiMatchDay ? ' today' : ''} (Over{isMultiMatchDay ? ' day' : ''} target)
                         </span>
                       ) : (
                         <span className="badge badge-muted tabular-nums" style={{ fontSize: '0.7rem' }}>
-                          {getPlayerLiveMinutes(player!.id)}
+                          {formatTimeShort(daySecs)}{isMultiMatchDay ? ' today' : ''}
                         </span>
                       )}
                     </div>
@@ -2091,11 +2165,12 @@ export default function LiveMatchPage({
               {benchPlayers.length > 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {[...benchPlayers]
-                    .sort((a, b) => getPlayerLiveSeconds(a!.id) - getPlayerLiveSeconds(b!.id))
+                    .sort((a, b) => getPlayerDayTotalSeconds(a!.id) - getPlayerDayTotalSeconds(b!.id))
                     .map((benchPlayer) => {
-                      const secs = getPlayerLiveSeconds(benchPlayer!.id);
-                      const isOver = secs > targetPitchSeconds;
-                      const diff = secs - targetPitchSeconds;
+                      const daySecs = getPlayerDayTotalSeconds(benchPlayer!.id);
+                      const matchSecs = getPlayerMatchSeconds(benchPlayer!.id);
+                      const isOver = daySecs > targetDayPitchSeconds;
+                      const diff = daySecs - targetDayPitchSeconds;
 
                       return (
                         <button
@@ -2122,11 +2197,11 @@ export default function LiveMatchPage({
                                 fontWeight: 700
                               }}
                             >
-                              ⚠️ {getPlayerLiveMinutes(benchPlayer!.id)} (+{formatTimeShort(diff)} over target)
+                              ⚠️ {formatTimeShort(daySecs)}{isMultiMatchDay ? ' today' : ''} (+{formatTimeShort(diff)} over target)
                             </span>
                           ) : (
                             <span className="badge badge-muted tabular-nums">
-                              {getPlayerLiveMinutes(benchPlayer!.id)} played
+                              {formatTimeShort(daySecs)}{isMultiMatchDay ? ` today (${formatTimeShort(matchSecs)} now)` : ' played'}
                             </span>
                           )}
                         </button>
@@ -2252,11 +2327,12 @@ export default function LiveMatchPage({
                 ...activeOutfield.map((p) => ({ ...p!, roleLabel: 'Outfield', isGK: false })),
                 ...activePowerplay.map((p) => ({ ...p!, roleLabel: 'Extra Player', isGK: false }))
               ]
-                .sort((a, b) => getPlayerLiveSeconds(a.id) - getPlayerLiveSeconds(b.id))
+                .sort((a, b) => getPlayerDayTotalSeconds(a.id) - getPlayerDayTotalSeconds(b.id))
                 .map((pitchPlayer) => {
-                  const secs = getPlayerLiveSeconds(pitchPlayer.id);
-                  const isOver = secs > targetPitchSeconds;
-                  const diff = secs - targetPitchSeconds;
+                  const daySecs = getPlayerDayTotalSeconds(pitchPlayer.id);
+                  const matchSecs = getPlayerMatchSeconds(pitchPlayer.id);
+                  const isOver = daySecs > targetDayPitchSeconds;
+                  const diff = daySecs - targetDayPitchSeconds;
 
                   return (
                     <button
@@ -2293,11 +2369,11 @@ export default function LiveMatchPage({
                             fontWeight: 700
                           }}
                         >
-                          ⚠️ {getPlayerLiveMinutes(pitchPlayer.id)} (+{formatTimeShort(diff)} over target)
+                          ⚠️ {formatTimeShort(daySecs)}{isMultiMatchDay ? ' today' : ''} (+{formatTimeShort(diff)} over target)
                         </span>
                       ) : (
                         <span className={`badge ${pitchPlayer.isGK ? 'badge-gold' : 'badge-green'} tabular-nums`}>
-                          <Clock size={10} /> {getPlayerLiveMinutes(pitchPlayer.id)}
+                          <Clock size={10} /> {formatTimeShort(daySecs)}{isMultiMatchDay ? ` (${formatTimeShort(matchSecs)})` : ''}
                         </span>
                       )}
                     </button>
@@ -2384,13 +2460,13 @@ export default function LiveMatchPage({
                         .filter((p) => p && !batchPairs.some((bp) => bp.offId === p.id))
                         .map((p) => ({ ...p!, label: `${p!.name} (Extra)` }))
                     ]
-                      .sort((a, b) => getPlayerLiveSeconds(a.id) - getPlayerLiveSeconds(b.id))
+                      .sort((a, b) => getPlayerDayTotalSeconds(a.id) - getPlayerDayTotalSeconds(b.id))
                       .map((p) => {
-                        const secs = getPlayerLiveSeconds(p.id);
-                        const isOver = secs > targetPitchSeconds;
+                        const daySecs = getPlayerDayTotalSeconds(p.id);
+                        const isOver = daySecs > targetDayPitchSeconds;
                         return (
                           <option key={p.id} value={p.id}>
-                            {p.label} - {getPlayerLiveMinutes(p.id)}{isOver ? ' ⚠️ (Over target)' : ''}
+                            {p.label} - {formatTimeShort(daySecs)}{isMultiMatchDay ? ' today' : ''}{isOver ? ' ⚠️ (Over target)' : ''}
                           </option>
                         );
                       })}
@@ -2408,13 +2484,13 @@ export default function LiveMatchPage({
                     <option value="" disabled>Select ON</option>
                     {benchPlayers
                       .filter((p) => p && !batchPairs.some((bp) => bp.onId === p.id))
-                      .sort((a, b) => getPlayerLiveSeconds(a!.id) - getPlayerLiveSeconds(b!.id))
+                      .sort((a, b) => getPlayerDayTotalSeconds(a!.id) - getPlayerDayTotalSeconds(b!.id))
                       .map((p) => {
-                        const secs = getPlayerLiveSeconds(p!.id);
-                        const isOver = secs > targetPitchSeconds;
+                        const daySecs = getPlayerDayTotalSeconds(p!.id);
+                        const isOver = daySecs > targetDayPitchSeconds;
                         return (
                           <option key={p!.id} value={p!.id}>
-                            {p!.name} - {getPlayerLiveMinutes(p!.id)}{isOver ? ' ⚠️ (Over target)' : ''}
+                            {p!.name} - {formatTimeShort(daySecs)}{isMultiMatchDay ? ' today' : ''}{isOver ? ' ⚠️ (Over target)' : ''}
                           </option>
                         );
                       })}
@@ -2489,10 +2565,10 @@ export default function LiveMatchPage({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>From Outfield (Role Swap - lowest time first):</div>
               {[...activeOutfield]
-                .sort((a, b) => getPlayerLiveSeconds(a!.id) - getPlayerLiveSeconds(b!.id))
+                .sort((a, b) => getPlayerDayTotalSeconds(a!.id) - getPlayerDayTotalSeconds(b!.id))
                 .map((player) => {
-                  const secs = getPlayerLiveSeconds(player!.id);
-                  const isOver = secs > targetPitchSeconds;
+                  const daySecs = getPlayerDayTotalSeconds(player!.id);
+                  const isOver = daySecs > targetDayPitchSeconds;
 
                   return (
                     <button
@@ -2510,7 +2586,7 @@ export default function LiveMatchPage({
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span className="badge badge-gold">Swap with GK</span>
                         <span className="badge badge-muted tabular-nums">
-                          {getPlayerLiveMinutes(player!.id)}{isOver ? ' ⚠️' : ''}
+                          {formatTimeShort(daySecs)}{isMultiMatchDay ? ' today' : ''}{isOver ? ' ⚠️' : ''}
                         </span>
                       </div>
                     </button>
@@ -2523,10 +2599,10 @@ export default function LiveMatchPage({
                     From Bench (Replace GK - lowest time first):
                   </div>
                   {[...benchPlayers]
-                    .sort((a, b) => getPlayerLiveSeconds(a!.id) - getPlayerLiveSeconds(b!.id))
+                    .sort((a, b) => getPlayerDayTotalSeconds(a!.id) - getPlayerDayTotalSeconds(b!.id))
                     .map((player) => {
-                      const secs = getPlayerLiveSeconds(player!.id);
-                      const isOver = secs > targetPitchSeconds;
+                      const daySecs = getPlayerDayTotalSeconds(player!.id);
+                      const isOver = daySecs > targetDayPitchSeconds;
 
                       return (
                         <button
@@ -2544,7 +2620,7 @@ export default function LiveMatchPage({
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <span className="badge badge-muted">Bench</span>
                             <span className="badge badge-muted tabular-nums">
-                              {getPlayerLiveMinutes(player!.id)}{isOver ? ' ⚠️' : ''}
+                              {formatTimeShort(daySecs)}{isMultiMatchDay ? ' today' : ''}{isOver ? ' ⚠️' : ''}
                             </span>
                           </div>
                         </button>

@@ -12,14 +12,37 @@ export interface ChangelogRelease {
   highlights: ChangelogHighlight[];
 }
 
-export const CURRENT_APP_VERSION = '0.4.4';
+export const CURRENT_APP_VERSION = '0.4.5';
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '0.4.5',
+    title: 'Day-Wide Match Time & Cumulative Playing Time Balancing',
+    date: 'November 2026',
+    isLatest: true,
+    highlights: [
+      {
+        icon: 'clock',
+        title: 'Day-Wide Target Pitch Time',
+        description: 'Total match time and target playing time are now calculated across all matches on that day so playing time balances evenly across multi-game matchdays.'
+      },
+      {
+        icon: 'refresh',
+        title: 'Cumulative Day Playing Counter',
+        description: 'Player pitch time counters track cumulative time across the whole day, displaying today’s total and highlighting any player exceeding their day target.'
+      },
+      {
+        icon: 'zap',
+        title: 'Smart Sub Sorting by Day Time',
+        description: 'Substitution menus sort players with the lowest total playing time for the day first to make balancing multi-game matchdays seamless.'
+      }
+    ]
+  },
   {
     version: '0.4.4',
     title: 'Target Playing Time & Smart Substitution Sorting',
     date: 'November 2026',
-    isLatest: true,
+    isLatest: false,
     highlights: [
       {
         icon: 'clock',
